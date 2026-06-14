@@ -1,0 +1,24 @@
+{
+  "clientId": "demo-clinic",
+  "agentName": "דנה",
+  "agentEmail": "dana@agentmail.dev",
+  "whatsappNumber": "+972500000001",
+  "googleCalendarId": "0bf1457ef78d9d44cc7971b57faeff7f973c4974efe97c696198781e00c4b8e0@group.calendar.google.com",
+  "timezone": "Asia/Jerusalem",
+  "language": "he",
+  "hitlMode": true,
+  "hitlApproverWhatsapp": "+972XXXXXXXXX",
+  "businessHours": {
+    "sun": "09:00-18:00",
+    "mon": "09:00-18:00",
+    "tue": "09:00-18:00",
+    "wed": "09:00-18:00",
+    "thu": "09:00-18:00",
+    "fri": "09:00-13:00",
+    "sat": null
+  },
+  "slotDurationMinutes": 45,
+  "reminderHours": [48, 2],
+  "leadFollowUpHours": 24,
+  "escalationKeywords": ["דחוף", "כאב חזק", "חירום", "בעיה חמורה"]
+}
