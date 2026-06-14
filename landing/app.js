@@ -58,6 +58,37 @@
     reveals.forEach(function (el) { el.classList.add("in"); });
   }
 
+  // ── stat count-up ─────────────────────────────────
+  var statsEl = document.querySelector(".stats");
+  function animateStats() {
+    statsEl.querySelectorAll("strong").forEach(function (s) {
+      var raw = s.textContent.trim();
+      var m = raw.match(/^(\D*)(\d+)(.*)$/);
+      if (!m) return;
+      var pre = m[1], target = parseInt(m[2], 10), suf = m[3];
+      if (target === 0) return; // leave "0" as-is
+      var dur = 1400, start = null;
+      s.textContent = pre + "0" + suf;
+      function step(ts) {
+        if (!start) start = ts;
+        var p = Math.min((ts - start) / dur, 1);
+        var eased = 1 - Math.pow(1 - p, 3);
+        s.textContent = pre + Math.round(eased * target) + suf;
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    });
+  }
+  if (statsEl && "IntersectionObserver" in window) {
+    var done = false;
+    var sio = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (e.isIntersecting && !done) { done = true; animateStats(); sio.disconnect(); }
+      });
+    }, { threshold: 0.4 });
+    sio.observe(statsEl);
+  }
+
   // ── hero chat animation ───────────────────────────
   var body = document.getElementById("chat-body");
   var statusEl = document.getElementById("chat-status");
@@ -111,6 +142,70 @@
     }
   }
   if (body) runChat();
+
+  // ── ROI calculator ────────────────────────────────
+  (function () {
+    var rVal = document.getElementById("r-value");
+    if (!rVal) return;
+    var rInq = document.getElementById("r-inq");
+    var rNs = document.getElementById("r-ns");
+    var oVal = document.getElementById("o-value");
+    var oInq = document.getElementById("o-inq");
+    var oNs = document.getElementById("o-ns");
+    var elMonthly = document.getElementById("calc-monthly");
+    var elAnnual = document.getElementById("calc-annual");
+    var elNs = document.getElementById("calc-ns");
+    var elLeads = document.getElementById("calc-leads");
+
+    // conservative, footnoted assumptions
+    var RED = 0.30, LOST = 0.25, REC = 0.5, CONV = 0.4;
+    function shek(n) { return "₪" + Math.round(n).toLocaleString("en-US"); }
+    function fill(r) {
+      var p = ((r.value - r.min) / (r.max - r.min)) * 100;
+      r.style.background = "linear-gradient(to right, var(--emerald) " + p + "%, var(--line-2) " + p + "%)";
+    }
+    var current = 0, raf;
+    function tween(from, to) {
+      cancelAnimationFrame(raf);
+      var start = null, dur = 650;
+      function step(ts) {
+        if (!start) start = ts;
+        var p = Math.min((ts - start) / dur, 1);
+        var e = 1 - Math.pow(1 - p, 3);
+        elMonthly.textContent = shek(from + (to - from) * e);
+        if (p < 1) raf = requestAnimationFrame(step);
+      }
+      raf = requestAnimationFrame(step);
+    }
+    function compute(animate) {
+      var v = +rVal.value, inq = +rInq.value, ns = +rNs.value;
+      oVal.textContent = "₪" + v.toLocaleString("en-US");
+      oInq.textContent = inq;
+      oNs.textContent = ns;
+      [rVal, rInq, rNs].forEach(fill);
+      var nsMoney = ns * RED * v;
+      var leadMoney = inq * LOST * REC * CONV * v;
+      var monthly = Math.round((nsMoney + leadMoney) / 10) * 10;
+      elNs.textContent = shek(nsMoney);
+      elLeads.textContent = shek(leadMoney);
+      elAnnual.textContent = shek(monthly * 12);
+      if (animate) tween(current, monthly);
+      else elMonthly.textContent = shek(monthly);
+      current = monthly;
+    }
+    [rVal, rInq, rNs].forEach(function (r) { r.addEventListener("input", function () { compute(false); }); });
+    compute(false);
+    // count the headline up the first time the card scrolls into view
+    var card = document.querySelector(".calc-card"), shown = false;
+    if ("IntersectionObserver" in window) {
+      var cio = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (e.isIntersecting && !shown) { shown = true; current = 0; compute(true); cio.disconnect(); }
+        });
+      }, { threshold: 0.3 });
+      cio.observe(card);
+    }
+  })();
 
   // ── lead form ─────────────────────────────────────
   var form = document.getElementById("lead-form");

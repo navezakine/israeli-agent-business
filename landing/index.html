@@ -258,6 +258,45 @@
       </div>
     </section>
 
+    <!-- ░░ ROI CALCULATOR ░░ -->
+    <section class="section calc" id="calc">
+      <div class="container">
+        <span class="eyebrow center reveal">כמה זה שווה לכם</span>
+        <h2 class="section-title center reveal">כמה כסף Replai מחזיר לכם בחודש?</h2>
+        <p class="section-lead center reveal">הזיזו את הסליידרים לפי המספרים של המרפאה שלכם — והמספר מתעדכן בזמן אמת.</p>
+
+        <div class="calc-card reveal">
+          <div class="calc-inputs">
+            <div class="calc-field">
+              <label>שווי תור ממוצע <output id="o-value">₪450</output></label>
+              <input type="range" id="r-value" min="150" max="2000" step="50" value="450" aria-label="שווי תור ממוצע" />
+            </div>
+            <div class="calc-field">
+              <label>פניות בוואטסאפ בחודש <output id="o-inq">120</output></label>
+              <input type="range" id="r-inq" min="10" max="600" step="10" value="120" aria-label="פניות בחודש" />
+            </div>
+            <div class="calc-field">
+              <label>הברזות / no-shows בחודש <output id="o-ns">15</output></label>
+              <input type="range" id="r-ns" min="0" max="120" step="1" value="15" aria-label="הברזות בחודש" />
+            </div>
+          </div>
+
+          <div class="calc-result">
+            <span class="calc-result-label">Replai יכול להחזיר לכם בערך</span>
+            <div class="calc-amount"><span id="calc-monthly">₪0</span> <small>בחודש</small></div>
+            <div class="calc-annual">≈ <span id="calc-annual">₪0</span> בשנה</div>
+            <div class="calc-breakdown">
+              <span><b id="calc-ns">₪0</b><br />פחות הברזות</span>
+              <span class="calc-div" aria-hidden="true"></span>
+              <span><b id="calc-leads">₪0</b><br />לידים שהוחזרו</span>
+            </div>
+            <a href="#demo" class="btn btn-primary btn-block btn-lg"><span>אני רוצה את המספר הזה</span><span class="btn-ico" aria-hidden="true">↖</span></a>
+          </div>
+        </div>
+        <p class="calc-fine reveal">* הערכה שמרנית בלבד, לפי ממוצעי ענף: הפחתת הברזות של כ-30% בזכות תזכורות, והחזרת חלק מהפניות שאובדות היום (ללא מענה אחרי שעות או ללא follow-up). התוצאות בפועל משתנות ממרפאה למרפאה.</p>
+      </div>
+    </section>
+
     <!-- ░░ DEMO / CTA ░░ -->
     <section class="section cta-section" id="demo">
       <div class="container">
