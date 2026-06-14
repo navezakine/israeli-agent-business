@@ -3,6 +3,7 @@
 import { Router } from 'express';
 import { loadClientConfig, listClientIds } from '../context/loader.js';
 import { runReminders } from '../reminders/reminders.js';
+import { runLeadFollowups } from '../reminders/leads.js';
 
 export const cronRouter = Router();
 
@@ -16,11 +17,33 @@ cronRouter.use((req, res, next) => {
   next();
 });
 
-// POST /cron/reminders  — send due appointment reminders for one or all clients.
-cronRouter.post('/reminders', async (req, res) => {
+function targetClients(req: import('express').Request): string[] {
   const clientId = (req.query.clientId as string) || (req.body?.clientId as string);
-  const ids = clientId ? [clientId] : listClientIds();
+  return clientId ? [clientId] : listClientIds();
+}
 
+// POST /cron/run — all scheduled jobs (reminders + lead follow-ups) for each client.
+cronRouter.post('/run', async (req, res) => {
+  const ids = targetClients(req);
+  const results: Record<string, unknown> = {};
+  for (const id of ids) {
+    try {
+      const config = loadClientConfig(id);
+      results[id] = {
+        reminders: await runReminders(config),
+        leads: await runLeadFollowups(config),
+      };
+    } catch (err) {
+      console.error('[cron/run]', id, err);
+      results[id] = { error: 'failed' };
+    }
+  }
+  res.json({ ran: ids, results });
+});
+
+// POST /cron/reminders — reminders only (kept for backward compatibility).
+cronRouter.post('/reminders', async (req, res) => {
+  const ids = targetClients(req);
   const results: Record<string, unknown> = {};
   for (const id of ids) {
     try {

@@ -41,6 +41,15 @@ db.exec(`
     actionTaken  TEXT,
     createdAt    INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS leads (
+    clientId  TEXT NOT NULL,
+    phone     TEXT NOT NULL,
+    stage     INTEGER NOT NULL DEFAULT 0,
+    dueAt     INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (clientId, phone)
+  );
 `);
 
 /** Has the reminder for (eventId, bucket-hours) already gone out? */
@@ -103,6 +112,43 @@ export function getPending(clientId: string): HitlPending | undefined {
 
 export function clearPending(clientId: string): void {
   db.prepare('DELETE FROM hitl_pending WHERE clientId = ?').run(clientId);
+}
+
+export interface Lead {
+  clientId: string;
+  phone: string;
+  stage: number;
+  dueAt: number;
+}
+
+/** Record/refresh a lead (booking interest, not yet booked). Resets stage. */
+export function upsertLead(clientId: string, phone: string, dueAt: number): void {
+  db.prepare(
+    `INSERT INTO leads (clientId, phone, stage, dueAt, createdAt)
+     VALUES (?, ?, 0, ?, ?)
+     ON CONFLICT(clientId, phone) DO UPDATE SET stage = 0, dueAt = excluded.dueAt`,
+  ).run(clientId, phone, dueAt, Date.now());
+}
+
+export function clearLead(clientId: string, phone: string): void {
+  db.prepare('DELETE FROM leads WHERE clientId = ? AND phone = ?').run(clientId, phone);
+}
+
+export function advanceLead(clientId: string, phone: string, stage: number, dueAt: number): void {
+  db.prepare('UPDATE leads SET stage = ?, dueAt = ? WHERE clientId = ? AND phone = ?').run(
+    stage,
+    dueAt,
+    clientId,
+    phone,
+  );
+}
+
+/** Leads whose follow-up is due (dueAt <= now). */
+export function getDueLeads(clientId: string, now: number): Lead[] {
+  const rows = db
+    .prepare('SELECT clientId, phone, stage, dueAt FROM leads WHERE clientId = ? AND dueAt <= ?')
+    .all(clientId, now) as Lead[];
+  return rows;
 }
 
 const COLD_WINDOW_MS = 24 * 60 * 60 * 1000;

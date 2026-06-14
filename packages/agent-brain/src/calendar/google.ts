@@ -192,6 +192,15 @@ export async function getUpcomingEvents(
     }));
 }
 
+/** Whether the calendar has any upcoming event whose description carries this phone. */
+export async function hasUpcomingEventForPhone(
+  config: ClientConfig,
+  phone: string,
+): Promise<boolean> {
+  const events = await getUpcomingEvents(config, 24 * 30); // look 30 days out
+  return events.some((e) => e.description.includes(phone));
+}
+
 export interface BookingDetails {
   patientName: string;
   patientPhone: string;

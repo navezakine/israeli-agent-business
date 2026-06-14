@@ -1,5 +1,5 @@
 {
-  "name": "02 - Appointment Reminders",
+  "name": "02 - Scheduled Jobs (reminders + leads)",
   "nodes": [
     {
       "parameters": {
@@ -16,7 +16,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://israeli-agent-business-production.up.railway.app/cron/reminders",
+        "url": "https://israeli-agent-business-production.up.railway.app/cron/run",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
