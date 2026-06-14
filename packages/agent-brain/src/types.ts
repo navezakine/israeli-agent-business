@@ -10,6 +10,7 @@ export interface ClientConfig {
   timezone: string;
   language: string;
   address?: string; // used in reminder messages
+  logSheetId?: string; // Google Sheet ID for interaction logging (optional)
   hitlMode: boolean;
   hitlApproverWhatsapp: string;
   businessHours: Record<string, string | null>; // keys: sun, mon, ... sat

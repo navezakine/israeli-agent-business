@@ -7,6 +7,7 @@
   "timezone": "Asia/Jerusalem",
   "language": "he",
   "address": "דיזנגוף 123 תל אביב, קומה 3",
+  "logSheetId": "",
   "hitlMode": true,
   "hitlApproverWhatsapp": "+972528747637",
   "businessHours": {

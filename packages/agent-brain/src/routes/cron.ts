@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { loadClientConfig, listClientIds } from '../context/loader.js';
 import { runReminders } from '../reminders/reminders.js';
 import { runLeadFollowups } from '../reminders/leads.js';
+import { notifyError } from '../alerts/alerts.js';
 
 export const cronRouter = Router();
 
@@ -35,6 +36,7 @@ cronRouter.post('/run', async (req, res) => {
       };
     } catch (err) {
       console.error('[cron/run]', id, err);
+      await notifyError(`cron/${id}`, err);
       results[id] = { error: 'failed' };
     }
   }

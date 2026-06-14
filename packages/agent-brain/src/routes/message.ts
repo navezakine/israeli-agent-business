@@ -16,6 +16,8 @@ import type { ClientConfig, AgentResult } from '../types.js';
 import { runAgent } from '../claude/client.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { interpretApproval, buildHitlPrompt, normalizePhone } from '../hitl/hitl.js';
+import { appendLogRow } from '../google/sheets.js';
+import { notifyError } from '../alerts/alerts.js';
 import type { MessageResponse } from '../types.js';
 
 const requestSchema = z.object({
@@ -36,6 +38,28 @@ function trackLead(config: ClientConfig, from: string, body: string, result: Age
     clearLead(config.clientId, from);
   } else if (result.intent === 'booking' || BOOKING_HINT.test(body)) {
     upsertLead(config.clientId, from, Date.now() + config.leadFollowUpHours * 3_600_000);
+  }
+}
+
+// Best-effort interaction log to the client's Google Sheet (never blocks the reply).
+async function logInteraction(
+  config: ClientConfig,
+  from: string,
+  intent: string,
+  action: string | undefined,
+  hitl: boolean,
+): Promise<void> {
+  if (!config.logSheetId) return;
+  try {
+    await appendLogRow(config.logSheetId, [
+      new Date().toISOString(),
+      '…' + from.slice(-4),
+      intent,
+      action ?? '',
+      hitl ? 'HITL' : '',
+    ]);
+  } catch (err) {
+    console.error('[log] append failed', err);
   }
 }
 
@@ -111,6 +135,7 @@ messageRouter.post('/', async (req, res) => {
         console.error('[hitl] notify approver failed', err);
       }
 
+      await logInteraction(config, from, result.intent, result.actionRequired?.type, true);
       // Empty reply → n8n sends nothing to the patient yet.
       res.json({ reply: '', intent: result.intent, hitlPending: true });
       return;
@@ -132,6 +157,7 @@ messageRouter.post('/', async (req, res) => {
     });
 
     trackLead(config, from, body, result);
+    await logInteraction(config, from, result.intent, result.actionRequired?.type, false);
 
     const response: MessageResponse = {
       reply: result.reply,
@@ -142,6 +168,7 @@ messageRouter.post('/', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('[/message] error:', err);
+    await notifyError(`message/${clientId}`, err);
     res.status(500).json({ error: 'internal error' });
   }
 });
