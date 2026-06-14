@@ -3,6 +3,7 @@
 // Created lazily so env vars (loaded in env.ts) are present before first use.
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import ws from 'ws';
 
 let cached: SupabaseClient | null | undefined;
 
@@ -15,6 +16,11 @@ export function getSupabase(): SupabaseClient | null {
     cached = null;
     return cached;
   }
-  cached = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  cached = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    // Railway runs Node 20 (no native WebSocket). We never use realtime, but
+    // supabase-js needs a transport at construction — hand it the `ws` package.
+    realtime: { transport: ws as unknown as never },
+  });
   return cached;
 }
