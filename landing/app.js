@@ -16,6 +16,14 @@
     a.setAttribute("rel", "noopener");
   });
 
+  // ── sticky mobile bar: show after hero scrolls away ──
+  var heroSec = document.querySelector(".hero");
+  if (heroSec && "IntersectionObserver" in window) {
+    new IntersectionObserver(function (es) {
+      document.body.classList.toggle("scrolled", !es[0].isIntersecting);
+    }, { threshold: 0 }).observe(heroSec);
+  }
+
   // ── mobile nav ────────────────────────────────────
   var burger = document.querySelector(".nav-burger");
   var menu = document.querySelector(".mobile-menu");
