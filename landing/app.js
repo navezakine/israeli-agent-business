@@ -1,4 +1,4 @@
-/* Replai landing — interactions */
+/* Replai landing interactions */
 (function () {
   "use strict";
 
