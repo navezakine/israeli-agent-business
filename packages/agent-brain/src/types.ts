@@ -56,7 +56,8 @@ export interface MessageResponse {
   reply: string;
   intent: string;
   actionRequired?: ActionRequired;
-  hitlPending?: boolean;
+  hitlPending?: boolean;  // draft queued for approval, nothing sent to patient yet
+  hitlHandled?: boolean;  // this request was an approver decision
 }
 
 /** A stored conversation turn. */

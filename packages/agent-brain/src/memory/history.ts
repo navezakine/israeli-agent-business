@@ -32,6 +32,15 @@ db.exec(`
     sentAt  INTEGER NOT NULL,
     PRIMARY KEY (eventId, bucket)
   );
+
+  CREATE TABLE IF NOT EXISTS hitl_pending (
+    clientId     TEXT PRIMARY KEY,
+    patientPhone TEXT NOT NULL,
+    draftReply   TEXT NOT NULL,
+    intent       TEXT,
+    actionTaken  TEXT,
+    createdAt    INTEGER NOT NULL
+  );
 `);
 
 /** Has the reminder for (eventId, bucket-hours) already gone out? */
@@ -47,6 +56,53 @@ export function markReminderSent(eventId: string, bucket: number): void {
   db.prepare(
     'INSERT OR IGNORE INTO reminders_sent (eventId, bucket, sentAt) VALUES (?, ?, ?)',
   ).run(eventId, bucket, Date.now());
+}
+
+export interface HitlPending {
+  clientId: string;
+  patientPhone: string;
+  draftReply: string;
+  intent?: string;
+  actionTaken?: string;
+}
+
+/** Store (or replace) the pending HITL approval for a client. */
+export function setPending(p: HitlPending): void {
+  db.prepare(
+    `INSERT INTO hitl_pending (clientId, patientPhone, draftReply, intent, actionTaken, createdAt)
+     VALUES (@clientId, @patientPhone, @draftReply, @intent, @actionTaken, @createdAt)
+     ON CONFLICT(clientId) DO UPDATE SET
+       patientPhone = excluded.patientPhone,
+       draftReply   = excluded.draftReply,
+       intent       = excluded.intent,
+       actionTaken  = excluded.actionTaken,
+       createdAt    = excluded.createdAt`,
+  ).run({
+    clientId: p.clientId,
+    patientPhone: p.patientPhone,
+    draftReply: p.draftReply,
+    intent: p.intent ?? null,
+    actionTaken: p.actionTaken ?? null,
+    createdAt: Date.now(),
+  });
+}
+
+export function getPending(clientId: string): HitlPending | undefined {
+  const row = db.prepare('SELECT * FROM hitl_pending WHERE clientId = ?').get(clientId) as
+    | { clientId: string; patientPhone: string; draftReply: string; intent: string | null; actionTaken: string | null }
+    | undefined;
+  if (!row) return undefined;
+  return {
+    clientId: row.clientId,
+    patientPhone: row.patientPhone,
+    draftReply: row.draftReply,
+    intent: row.intent ?? undefined,
+    actionTaken: row.actionTaken ?? undefined,
+  };
+}
+
+export function clearPending(clientId: string): void {
+  db.prepare('DELETE FROM hitl_pending WHERE clientId = ?').run(clientId);
 }
 
 const COLD_WINDOW_MS = 24 * 60 * 60 * 1000;

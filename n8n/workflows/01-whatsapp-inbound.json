@@ -41,7 +41,7 @@
     {
       "parameters": {
         "respondWith": "text",
-        "responseBody": "=<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message><![CDATA[{{ $json.reply }}]]></Message></Response>",
+        "responseBody": "=<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response>{{ $json.reply ? ('<Message><![CDATA[' + $json.reply + ']]></Message>') : '' }}</Response>",
         "options": {
           "responseHeaders": {
             "entries": [
