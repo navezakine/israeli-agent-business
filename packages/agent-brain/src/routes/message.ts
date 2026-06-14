@@ -13,6 +13,7 @@ import {
   markBookedLead,
 } from '../memory/history.js';
 import { getToggles } from '../db/settings.js';
+import { applyClientOverrides } from '../db/profile.js';
 import type { ClientConfig, AgentResult } from '../types.js';
 import { runAgent } from '../claude/client.js';
 import * as whatsapp from '../twilio/whatsapp.js';
@@ -81,7 +82,7 @@ messageRouter.post('/', async (req, res) => {
   const { clientId, from, body } = parsed.data;
 
   try {
-    const config = loadClientConfig(clientId);
+    const config = await applyClientOverrides(loadClientConfig(clientId));
     const vault = loadVault(clientId);
     const toggles = await getToggles(clientId);
 
