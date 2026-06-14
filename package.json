@@ -1,0 +1,13 @@
+{
+  "name": "israeli-agent-business",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo root — builds and runs the agent-brain service (deployed on Railway).",
+  "scripts": {
+    "build": "npm install --prefix packages/agent-brain && npm run build --prefix packages/agent-brain",
+    "start": "node packages/agent-brain/dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

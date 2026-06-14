@@ -7,6 +7,7 @@ dist/
 # Environment & secrets — NEVER commit these
 .env
 .env.local
+.env.railway
 *.pem
 *.key
 google-service-account*.json
