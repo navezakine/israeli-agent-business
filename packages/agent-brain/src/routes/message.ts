@@ -10,8 +10,9 @@ import {
   getPending,
   clearPending,
   upsertLead,
-  clearLead,
+  markBookedLead,
 } from '../memory/history.js';
+import { getToggles } from '../db/settings.js';
 import type { ClientConfig, AgentResult } from '../types.js';
 import { runAgent } from '../claude/client.js';
 import * as whatsapp from '../twilio/whatsapp.js';
@@ -32,12 +33,17 @@ const requestSchema = z.object({
 const BOOKING_HINT = /תור|לקבוע|להזמין|פנוי|זמין|מתי יש/;
 
 // Booking interest with no completed booking → track as a lead for follow-up.
-// A completed booking clears any existing lead.
-function trackLead(config: ClientConfig, from: string, body: string, result: AgentResult): void {
+// A completed booking resolves any existing lead (recovered if we'd nudged it).
+async function trackLead(
+  config: ClientConfig,
+  from: string,
+  body: string,
+  result: AgentResult,
+): Promise<void> {
   if (result.actionRequired?.type === 'book_appointment') {
-    clearLead(config.clientId, from);
+    await markBookedLead(config.clientId, from);
   } else if (result.intent === 'booking' || BOOKING_HINT.test(body)) {
-    upsertLead(config.clientId, from, Date.now() + config.leadFollowUpHours * 3_600_000);
+    await upsertLead(config.clientId, from, Date.now() + config.leadFollowUpHours * 3_600_000);
   }
 }
 
@@ -77,17 +83,27 @@ messageRouter.post('/', async (req, res) => {
   try {
     const config = loadClientConfig(clientId);
     const vault = loadVault(clientId);
+    const toggles = await getToggles(clientId);
 
-    // ── HITL branch ───────────────────────────────────────────
-    if (config.hitlMode) {
-      const pending = getPending(clientId);
+    // ── Paused: master off OR auto-replies off ────────────────
+    // Still record the inbound message (so counts/insights stay accurate),
+    // but send nothing back to the patient.
+    if (!toggles.botActive || !toggles.autoReply) {
+      await appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
+      res.json({ reply: '', intent: 'paused', botPaused: true });
+      return;
+    }
+
+    // ── HITL branch (driven by the dashboard toggle) ──────────
+    if (toggles.hitlEnabled) {
+      const pending = await getPending(clientId);
       const fromApprover = normalizePhone(from) === normalizePhone(config.hitlApproverWhatsapp);
 
       // (a) Approver is responding to a pending draft → resolve it.
       if (fromApprover && pending) {
         const decision = interpretApproval(body);
         if (decision.type === 'cancel') {
-          clearPending(clientId);
+          await clearPending(clientId);
           res.json({ reply: '❌ בוטל — לא נשלח ללקוח.', intent: 'hitl', hitlHandled: true });
           return;
         }
@@ -100,26 +116,27 @@ messageRouter.post('/', async (req, res) => {
           console.error('[hitl] send to patient failed', err);
           ack = '⚠️ ההודעה לא נשלחה (תקלת שליחה). נסה שוב.';
         }
-        clearPending(clientId);
+        await clearPending(clientId);
         res.json({ reply: ack, intent: 'hitl', hitlHandled: true });
         return;
       }
 
       // (b) Normal patient message under HITL → draft, queue, notify approver.
-      const history = getRecentMessages(clientId, from);
-      appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
+      const history = await getRecentMessages(clientId, from);
+      await appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
       const result = await runAgent({ config, vault, history, userMessage: body, from });
-      appendMessage({
+      await appendMessage({
         clientId,
         phoneNumber: from,
         role: 'assistant',
         content: result.reply,
         intent: result.intent,
         actionTaken: result.actionRequired?.type,
+        hitl: true,
       });
 
-      trackLead(config, from, body, result);
-      setPending({
+      await trackLead(config, from, body, result);
+      await setPending({
         clientId,
         patientPhone: from,
         draftReply: result.reply,
@@ -142,12 +159,12 @@ messageRouter.post('/', async (req, res) => {
     }
 
     // ── Normal (non-HITL) path ────────────────────────────────
-    const history = getRecentMessages(clientId, from);
-    appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
+    const history = await getRecentMessages(clientId, from);
+    await appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
 
     const result = await runAgent({ config, vault, history, userMessage: body, from });
 
-    appendMessage({
+    await appendMessage({
       clientId,
       phoneNumber: from,
       role: 'assistant',
@@ -156,7 +173,7 @@ messageRouter.post('/', async (req, res) => {
       actionTaken: result.actionRequired?.type,
     });
 
-    trackLead(config, from, body, result);
+    await trackLead(config, from, body, result);
     await logInteraction(config, from, result.intent, result.actionRequired?.type, false);
 
     const response: MessageResponse = {

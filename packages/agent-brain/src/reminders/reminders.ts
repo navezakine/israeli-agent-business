@@ -73,11 +73,11 @@ export async function runReminders(config: ClientConfig): Promise<ReminderResult
     const { treatment, name } = parseSummary(ev.summary);
     for (const H of config.reminderHours) {
       const inWindow = hoursUntil >= H - WINDOW_HOURS && hoursUntil <= H + WINDOW_HOURS;
-      if (!inWindow || wasReminderSent(ev.id, H)) continue;
+      if (!inWindow || (await wasReminderSent(config.clientId, ev.id, H))) continue;
       const body = buildMessage(H, config, ev.startISO, treatment, name);
       try {
         await whatsapp.sendWhatsApp(phone, body);
-        markReminderSent(ev.id, H);
+        await markReminderSent(config.clientId, ev.id, H);
         result.sent.push({ to: phone, bucket: H, time: ev.startISO });
       } catch (err) {
         console.error('[reminders] send failed', err);

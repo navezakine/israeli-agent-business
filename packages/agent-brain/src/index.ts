@@ -1,6 +1,6 @@
 // index.ts — Express app entry point
 
-import 'dotenv/config';
+import './env.js'; // load .env + .env.supabase before anything reads process.env
 import express from 'express';
 import { messageRouter } from './routes/message.js';
 import { cronRouter } from './routes/cron.js';

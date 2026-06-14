@@ -6,6 +6,7 @@
 
 import { google } from 'googleapis';
 import type { ClientConfig } from '../types.js';
+import { getSupabase } from '../db/supabase.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 
@@ -229,5 +230,29 @@ export async function bookAppointment(
     },
   });
 
-  return { eventId: res.data.id ?? '', htmlLink: res.data.htmlLink ?? '' };
+  const eventId = res.data.id ?? '';
+
+  // Durable log for the dashboard (headline "booked by Replai" stat + calendar).
+  // Best-effort: a logging hiccup must never fail the actual booking.
+  try {
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('appointments').upsert(
+        {
+          client_id: config.clientId,
+          google_event_id: eventId,
+          patient_phone: details.patientPhone,
+          title: summary,
+          start_at: start.toISOString(),
+          booked_by: 'replai',
+        },
+        { onConflict: 'client_id,google_event_id' },
+      );
+      if (error) console.error('[appointments] log failed', error.message);
+    }
+  } catch (err) {
+    console.error('[appointments] log threw', err);
+  }
+
+  return { eventId, htmlLink: res.data.htmlLink ?? '' };
 }

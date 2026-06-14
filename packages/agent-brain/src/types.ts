@@ -59,6 +59,7 @@ export interface MessageResponse {
   actionRequired?: ActionRequired;
   hitlPending?: boolean;  // draft queued for approval, nothing sent to patient yet
   hitlHandled?: boolean;  // this request was an approver decision
+  botPaused?: boolean;    // bot is off / auto-replies disabled — nothing sent to patient
 }
 
 /** A stored conversation turn. */

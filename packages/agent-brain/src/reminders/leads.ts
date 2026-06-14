@@ -5,7 +5,7 @@
 import type { ClientConfig } from '../types.js';
 import { hasUpcomingEventForPhone } from '../calendar/google.js';
 import * as whatsapp from '../twilio/whatsapp.js';
-import { getDueLeads, advanceLead, clearLead } from '../memory/history.js';
+import { getDueLeads, advanceLead, markBookedLead, markLeadLost } from '../memory/history.js';
 
 const FINAL_DELAY_HOURS = 48;
 
@@ -32,14 +32,14 @@ export async function runLeadFollowups(config: ClientConfig): Promise<LeadResult
   }
 
   const now = Date.now();
-  const leads = getDueLeads(config.clientId, now);
+  const leads = await getDueLeads(config.clientId, now);
   result.due = leads.length;
 
   for (const lead of leads) {
-    // If they've since booked, drop the lead.
+    // If they've since booked, resolve the lead (recovered if we'd nudged it).
     try {
       if (await hasUpcomingEventForPhone(config, lead.phone)) {
-        clearLead(config.clientId, lead.phone);
+        await markBookedLead(config.clientId, lead.phone);
         result.booked.push(lead.phone);
         continue;
       }
@@ -50,11 +50,11 @@ export async function runLeadFollowups(config: ClientConfig): Promise<LeadResult
     try {
       if (lead.stage === 0) {
         await whatsapp.sendWhatsApp(lead.phone, firstNudge(config));
-        advanceLead(config.clientId, lead.phone, 1, now + FINAL_DELAY_HOURS * 3_600_000);
+        await advanceLead(config.clientId, lead.phone, 1, now + FINAL_DELAY_HOURS * 3_600_000);
         result.sent.push({ to: lead.phone, stage: 0 });
       } else {
         await whatsapp.sendWhatsApp(lead.phone, finalNudge(config));
-        clearLead(config.clientId, lead.phone);
+        await markLeadLost(config.clientId, lead.phone);
         result.sent.push({ to: lead.phone, stage: lead.stage });
       }
     } catch (err) {

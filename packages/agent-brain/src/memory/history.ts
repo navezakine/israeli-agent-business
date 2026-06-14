@@ -1,72 +1,101 @@
-// memory/history.ts — conversation history (SQLite via better-sqlite3)
-// Stores every turn; returns the last N messages within a 24h window so a cold
-// conversation (>24h silent) naturally starts fresh (spec key decision #6).
+// memory/history.ts — durable conversation history & bot state in Supabase.
+// Replaces the old better-sqlite3 store (which wiped on every Railway redeploy).
+// Every function is best-effort: if Supabase is unreachable, reads return empty
+// and writes log + no-op, so the bot keeps replying (degraded, never crashing).
 
-import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { getSupabase } from '../db/supabase.js';
 import type { ConversationMessage } from '../types.js';
 
-const DATA_DIR = resolve(process.cwd(), 'data');
-mkdirSync(DATA_DIR, { recursive: true });
+const COLD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-const db = new Database(resolve(DATA_DIR, 'history.sqlite'));
-db.pragma('journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
-    id          TEXT PRIMARY KEY,
-    clientId    TEXT NOT NULL,
-    phoneNumber TEXT NOT NULL,
-    role        TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    intent      TEXT,
-    actionTaken TEXT,
-    timestamp   INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_lookup ON messages (clientId, phoneNumber, timestamp);
-
-  CREATE TABLE IF NOT EXISTS reminders_sent (
-    eventId TEXT NOT NULL,
-    bucket  INTEGER NOT NULL,
-    sentAt  INTEGER NOT NULL,
-    PRIMARY KEY (eventId, bucket)
-  );
-
-  CREATE TABLE IF NOT EXISTS hitl_pending (
-    clientId     TEXT PRIMARY KEY,
-    patientPhone TEXT NOT NULL,
-    draftReply   TEXT NOT NULL,
-    intent       TEXT,
-    actionTaken  TEXT,
-    createdAt    INTEGER NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS leads (
-    clientId  TEXT NOT NULL,
-    phone     TEXT NOT NULL,
-    stage     INTEGER NOT NULL DEFAULT 0,
-    dueAt     INTEGER NOT NULL,
-    createdAt INTEGER NOT NULL,
-    PRIMARY KEY (clientId, phone)
-  );
-`);
-
-/** Has the reminder for (eventId, bucket-hours) already gone out? */
-export function wasReminderSent(eventId: string, bucket: number): boolean {
-  const row = db
-    .prepare('SELECT 1 FROM reminders_sent WHERE eventId = ? AND bucket = ?')
-    .get(eventId, bucket);
-  return Boolean(row);
+// ── conversation messages (bot memory + analytics) ───────────────
+export async function appendMessage(m: ConversationMessage & { hitl?: boolean }): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from('messages').insert({
+    client_id: m.clientId,
+    phone: m.phoneNumber,
+    role: m.role,
+    content: m.content,
+    intent: m.intent ?? null,
+    action: m.actionTaken ?? null,
+    hitl: m.hitl ?? false,
+  });
+  if (error) console.error('[history] appendMessage', error.message);
 }
 
-/** Record that a reminder was sent (idempotent). */
-export function markReminderSent(eventId: string, bucket: number): void {
-  db.prepare(
-    'INSERT OR IGNORE INTO reminders_sent (eventId, bucket, sentAt) VALUES (?, ?, ?)',
-  ).run(eventId, bucket, Date.now());
+export async function getRecentMessages(
+  clientId: string,
+  phoneNumber: string,
+  limit = 10,
+): Promise<ConversationMessage[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const since = new Date(Date.now() - COLD_WINDOW_MS).toISOString();
+  const { data, error } = await sb
+    .from('messages')
+    .select('phone, role, content, intent, action, created_at')
+    .eq('client_id', clientId)
+    .eq('phone', phoneNumber)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error('[history] getRecentMessages', error.message);
+    return [];
+  }
+  return (data ?? [])
+    .reverse()
+    .map((r) => ({
+      clientId,
+      phoneNumber: r.phone as string,
+      role: r.role as 'user' | 'assistant',
+      content: r.content as string,
+      intent: (r.intent as string) ?? undefined,
+      actionTaken: (r.action as string) ?? undefined,
+      timestamp: new Date(r.created_at as string),
+    }));
 }
 
+// ── reminders dedup ──────────────────────────────────────────────
+export async function wasReminderSent(
+  clientId: string,
+  eventId: string,
+  bucket: number,
+): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const { data, error } = await sb
+    .from('reminders_sent')
+    .select('event_id')
+    .eq('client_id', clientId)
+    .eq('event_id', eventId)
+    .eq('bucket', bucket)
+    .maybeSingle();
+  if (error) {
+    console.error('[history] wasReminderSent', error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+export async function markReminderSent(
+  clientId: string,
+  eventId: string,
+  bucket: number,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('reminders_sent')
+    .upsert(
+      { client_id: clientId, event_id: eventId, bucket },
+      { onConflict: 'client_id,event_id,bucket', ignoreDuplicates: true },
+    );
+  if (error) console.error('[history] markReminderSent', error.message);
+}
+
+// ── HITL pending draft (one per client) ──────────────────────────
 export interface HitlPending {
   clientId: string;
   patientPhone: string;
@@ -75,45 +104,42 @@ export interface HitlPending {
   actionTaken?: string;
 }
 
-/** Store (or replace) the pending HITL approval for a client. */
-export function setPending(p: HitlPending): void {
-  db.prepare(
-    `INSERT INTO hitl_pending (clientId, patientPhone, draftReply, intent, actionTaken, createdAt)
-     VALUES (@clientId, @patientPhone, @draftReply, @intent, @actionTaken, @createdAt)
-     ON CONFLICT(clientId) DO UPDATE SET
-       patientPhone = excluded.patientPhone,
-       draftReply   = excluded.draftReply,
-       intent       = excluded.intent,
-       actionTaken  = excluded.actionTaken,
-       createdAt    = excluded.createdAt`,
-  ).run({
-    clientId: p.clientId,
-    patientPhone: p.patientPhone,
-    draftReply: p.draftReply,
-    intent: p.intent ?? null,
-    actionTaken: p.actionTaken ?? null,
-    createdAt: Date.now(),
-  });
+export async function setPending(p: HitlPending): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('hitl_pending')
+    .upsert(
+      { client_id: p.clientId, patient_phone: p.patientPhone, draft: p.draftReply },
+      { onConflict: 'client_id' },
+    );
+  if (error) console.error('[history] setPending', error.message);
 }
 
-export function getPending(clientId: string): HitlPending | undefined {
-  const row = db.prepare('SELECT * FROM hitl_pending WHERE clientId = ?').get(clientId) as
-    | { clientId: string; patientPhone: string; draftReply: string; intent: string | null; actionTaken: string | null }
-    | undefined;
-  if (!row) return undefined;
-  return {
-    clientId: row.clientId,
-    patientPhone: row.patientPhone,
-    draftReply: row.draftReply,
-    intent: row.intent ?? undefined,
-    actionTaken: row.actionTaken ?? undefined,
-  };
+export async function getPending(clientId: string): Promise<HitlPending | undefined> {
+  const sb = getSupabase();
+  if (!sb) return undefined;
+  const { data, error } = await sb
+    .from('hitl_pending')
+    .select('client_id, patient_phone, draft')
+    .eq('client_id', clientId)
+    .maybeSingle();
+  if (error) {
+    console.error('[history] getPending', error.message);
+    return undefined;
+  }
+  if (!data) return undefined;
+  return { clientId: data.client_id, patientPhone: data.patient_phone, draftReply: data.draft };
 }
 
-export function clearPending(clientId: string): void {
-  db.prepare('DELETE FROM hitl_pending WHERE clientId = ?').run(clientId);
+export async function clearPending(clientId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from('hitl_pending').delete().eq('client_id', clientId);
+  if (error) console.error('[history] clearPending', error.message);
 }
 
+// ── leads (with recovered/lost lifecycle) ────────────────────────
 export interface Lead {
   clientId: string;
   phone: string;
@@ -121,87 +147,105 @@ export interface Lead {
   dueAt: number;
 }
 
-/** Record/refresh a lead (booking interest, not yet booked). Resets stage. */
-export function upsertLead(clientId: string, phone: string, dueAt: number): void {
-  db.prepare(
-    `INSERT INTO leads (clientId, phone, stage, dueAt, createdAt)
-     VALUES (?, ?, 0, ?, ?)
-     ON CONFLICT(clientId, phone) DO UPDATE SET stage = 0, dueAt = excluded.dueAt`,
-  ).run(clientId, phone, dueAt, Date.now());
-}
-
-export function clearLead(clientId: string, phone: string): void {
-  db.prepare('DELETE FROM leads WHERE clientId = ? AND phone = ?').run(clientId, phone);
-}
-
-export function advanceLead(clientId: string, phone: string, stage: number, dueAt: number): void {
-  db.prepare('UPDATE leads SET stage = ?, dueAt = ? WHERE clientId = ? AND phone = ?').run(
-    stage,
-    dueAt,
-    clientId,
-    phone,
+/** Record/refresh an open lead (booking interest, not yet booked). Resets stage. */
+export async function upsertLead(clientId: string, phone: string, dueAt: number): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from('leads').upsert(
+    {
+      client_id: clientId,
+      phone,
+      stage: 0,
+      status: 'open',
+      due_at: new Date(dueAt).toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'client_id,phone' },
   );
+  if (error) console.error('[history] upsertLead', error.message);
 }
 
-/** Leads whose follow-up is due (dueAt <= now). */
-export function getDueLeads(clientId: string, now: number): Lead[] {
-  const rows = db
-    .prepare('SELECT clientId, phone, stage, dueAt FROM leads WHERE clientId = ? AND dueAt <= ?')
-    .all(clientId, now) as Lead[];
-  return rows;
+export async function clearLead(clientId: string, phone: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from('leads').delete().eq('client_id', clientId).eq('phone', phone);
+  if (error) console.error('[history] clearLead', error.message);
 }
 
-const COLD_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-const insertStmt = db.prepare(`
-  INSERT INTO messages (id, clientId, phoneNumber, role, content, intent, actionTaken, timestamp)
-  VALUES (@id, @clientId, @phoneNumber, @role, @content, @intent, @actionTaken, @timestamp)
-`);
-
-export function appendMessage(m: ConversationMessage): void {
-  insertStmt.run({
-    id: randomUUID(),
-    clientId: m.clientId,
-    phoneNumber: m.phoneNumber,
-    role: m.role,
-    content: m.content,
-    intent: m.intent ?? null,
-    actionTaken: m.actionTaken ?? null,
-    timestamp: Date.now(),
-  });
-}
-
-const recentStmt = db.prepare(`
-  SELECT * FROM messages
-  WHERE clientId = ? AND phoneNumber = ? AND timestamp >= ?
-  ORDER BY timestamp DESC
-  LIMIT ?
-`);
-
-export function getRecentMessages(
+export async function advanceLead(
   clientId: string,
-  phoneNumber: string,
-  limit = 10,
-): ConversationMessage[] {
-  const since = Date.now() - COLD_WINDOW_MS;
-  const rows = recentStmt.all(clientId, phoneNumber, since, limit) as Array<{
-    id: string;
-    clientId: string;
-    phoneNumber: string;
-    role: 'user' | 'assistant';
-    content: string;
-    intent: string | null;
-    actionTaken: string | null;
-    timestamp: number;
-  }>;
-  return rows.reverse().map((r) => ({
-    id: r.id,
-    clientId: r.clientId,
-    phoneNumber: r.phoneNumber,
-    role: r.role,
-    content: r.content,
-    intent: r.intent ?? undefined,
-    actionTaken: r.actionTaken ?? undefined,
-    timestamp: new Date(r.timestamp),
+  phone: string,
+  stage: number,
+  dueAt: number,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('leads')
+    .update({ stage, due_at: new Date(dueAt).toISOString(), updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('phone', phone);
+  if (error) console.error('[history] advanceLead', error.message);
+}
+
+/** A lead booked. If we had already nudged it (stage ≥ 1), count it as RECOVERED;
+ *  otherwise it booked on its own — just remove it. */
+export async function markBookedLead(clientId: string, phone: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { data, error } = await sb
+    .from('leads')
+    .select('stage')
+    .eq('client_id', clientId)
+    .eq('phone', phone)
+    .maybeSingle();
+  if (error) {
+    console.error('[history] markBookedLead lookup', error.message);
+    return;
+  }
+  if (!data) return; // no lead tracked
+  if ((data.stage as number) >= 1) {
+    const { error: upErr } = await sb
+      .from('leads')
+      .update({ status: 'recovered', recovered_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('client_id', clientId)
+      .eq('phone', phone);
+    if (upErr) console.error('[history] markBookedLead recover', upErr.message);
+  } else {
+    await clearLead(clientId, phone);
+  }
+}
+
+/** Final nudge sent, no booking → close it out as lost. */
+export async function markLeadLost(clientId: string, phone: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('leads')
+    .update({ status: 'lost', updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('phone', phone);
+  if (error) console.error('[history] markLeadLost', error.message);
+}
+
+/** Open leads whose follow-up is due (due_at <= now). */
+export async function getDueLeads(clientId: string, now: number): Promise<Lead[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from('leads')
+    .select('phone, stage, due_at')
+    .eq('client_id', clientId)
+    .eq('status', 'open')
+    .lte('due_at', new Date(now).toISOString());
+  if (error) {
+    console.error('[history] getDueLeads', error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => ({
+    clientId,
+    phone: r.phone as string,
+    stage: r.stage as number,
+    dueAt: new Date(r.due_at as string).getTime(),
   }));
 }
