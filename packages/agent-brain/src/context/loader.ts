@@ -30,6 +30,18 @@ export function loadVault(clientId: string): VaultFiles {
   };
 }
 
+/** All distinct clientIds mapped in clients/routing.json. */
+export function listClientIds(): string[] {
+  try {
+    const routing = JSON.parse(
+      readFileSync(join(CLIENTS_DIR, 'routing.json'), 'utf8'),
+    ) as Record<string, string>;
+    return [...new Set(Object.values(routing))];
+  } catch {
+    return [];
+  }
+}
+
 /** Maps a WhatsApp "to" number → clientId, using clients/routing.json.
  *  Used by n8n's multi-client routing. Returns undefined if not mapped. */
 export function resolveClientId(toNumber: string): string | undefined {

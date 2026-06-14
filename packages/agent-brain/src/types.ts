@@ -9,6 +9,7 @@ export interface ClientConfig {
   googleCalendarId: string;
   timezone: string;
   language: string;
+  address?: string; // used in reminder messages
   hitlMode: boolean;
   hitlApproverWhatsapp: string;
   businessHours: Record<string, string | null>; // keys: sun, mon, ... sat

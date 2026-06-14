@@ -25,7 +25,29 @@ db.exec(`
     timestamp   INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_lookup ON messages (clientId, phoneNumber, timestamp);
+
+  CREATE TABLE IF NOT EXISTS reminders_sent (
+    eventId TEXT NOT NULL,
+    bucket  INTEGER NOT NULL,
+    sentAt  INTEGER NOT NULL,
+    PRIMARY KEY (eventId, bucket)
+  );
 `);
+
+/** Has the reminder for (eventId, bucket-hours) already gone out? */
+export function wasReminderSent(eventId: string, bucket: number): boolean {
+  const row = db
+    .prepare('SELECT 1 FROM reminders_sent WHERE eventId = ? AND bucket = ?')
+    .get(eventId, bucket);
+  return Boolean(row);
+}
+
+/** Record that a reminder was sent (idempotent). */
+export function markReminderSent(eventId: string, bucket: number): void {
+  db.prepare(
+    'INSERT OR IGNORE INTO reminders_sent (eventId, bucket, sentAt) VALUES (?, ?, ?)',
+  ).run(eventId, bucket, Date.now());
+}
 
 const COLD_WINDOW_MS = 24 * 60 * 60 * 1000;
 

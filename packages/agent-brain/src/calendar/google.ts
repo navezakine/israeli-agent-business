@@ -161,6 +161,37 @@ export async function getAvailableSlots(
   return slots;
 }
 
+export interface UpcomingEvent {
+  id: string;
+  summary: string;
+  description: string;
+  startISO: string;
+}
+
+/** Events with a start time in the next `hoursAhead` hours (timed events only). */
+export async function getUpcomingEvents(
+  config: ClientConfig,
+  hoursAhead: number,
+): Promise<UpcomingEvent[]> {
+  const cal = getCalendarClient();
+  const now = new Date();
+  const res = await cal.events.list({
+    calendarId: config.googleCalendarId,
+    timeMin: now.toISOString(),
+    timeMax: new Date(now.getTime() + hoursAhead * 3600 * 1000).toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+  });
+  return (res.data.items ?? [])
+    .filter((e) => e.start?.dateTime)
+    .map((e) => ({
+      id: e.id ?? '',
+      summary: e.summary ?? '',
+      description: e.description ?? '',
+      startISO: e.start!.dateTime!,
+    }));
+}
+
 export interface BookingDetails {
   patientName: string;
   patientPhone: string;

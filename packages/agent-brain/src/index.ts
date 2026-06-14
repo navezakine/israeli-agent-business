@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { messageRouter } from './routes/message.js';
+import { cronRouter } from './routes/cron.js';
 
 const app = express();
 app.use(express.json());
@@ -12,6 +13,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/message', messageRouter);
+app.use('/cron', cronRouter);
 
 const PORT = Number(process.env.PORT ?? 3000);
 app.listen(PORT, () => {
