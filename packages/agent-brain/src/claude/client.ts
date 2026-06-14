@@ -12,7 +12,9 @@ import type {
   VaultFiles,
 } from '../types.js';
 
-const MODEL = 'claude-sonnet-4-6'; // fast, best Hebrew — per spec, not Opus
+// Model is env-configurable so we can run cheap during testing (claude-haiku-4-5)
+// and switch to the better model (claude-sonnet-4-6) for production by changing CLAUDE_MODEL.
+const MODEL = process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6';
 const MAX_TOKENS = 1024;
 const MAX_TURNS = 5; // safety bound on the tool-use loop
 

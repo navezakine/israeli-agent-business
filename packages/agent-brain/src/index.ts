@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', model: 'claude-sonnet-4-6' });
+  res.json({ status: 'ok', model: process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6' });
 });
 
 app.use('/message', messageRouter);
