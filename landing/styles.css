@@ -633,6 +633,8 @@ input[type="range"]::-moz-range-thumb {
   .nav-links, .nav-cta { display: none; }
   .nav-burger { display: flex; }
   .hero { padding-top: 120px; }
+  .hero-title { font-size: clamp(30px, 8.5vw, 42px); }
+  .hero-sub { font-size: 16px; }
   .stats { grid-template-columns: repeat(2, 1fr); gap: 24px 12px; }
   .pain-grid { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; gap: 14px; }
@@ -641,6 +643,10 @@ input[type="range"]::-moz-range-thumb {
   .cap-wide { grid-column: span 1; }
   .diff { grid-template-columns: 1fr; }
   .section-title { font-size: clamp(26px, 8vw, 36px); }
+  /* ROI calculator: stack the two panels, and drop the hover-only "?" tips (no hover on touch, and they overflowed) */
+  .calc-card { grid-template-columns: 1fr; }
+  .calc-amount { font-size: clamp(40px, 12vw, 56px); }
+  .info { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto; }
