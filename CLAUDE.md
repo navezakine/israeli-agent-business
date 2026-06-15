@@ -13,7 +13,7 @@ The product we're building in this session is twofold:
 1. **A fully working MVP agent** for a demo medical clinic — wired to real WhatsApp, real Google Calendar, real Claude API. Ready to hand to a first paying client.
 2. **A reusable template** — structured so each new client is a new folder + config, not a new codebase.
 
-Business model: ₪5,500–₪8,000/month flat fee per client. No setup fee charged separately — Month 1 is the setup month. We operate as a one-person agency using our own tools to manage all clients.
+Business model: founding rate ₪690/month per client (month-to-month, cancel anytime), opening with a 7-day free trial, in exchange for a testimonial + case-study consent. Regular price (anchor, quoted on sales calls only) ₪2,900–₪3,500/month. Setup is included, no separate fee. The founding rate is deliberately low for the first clients, to build proof and experience; price rises later with track record and in new markets. We operate as a one-person agency using our own tools to manage all clients.
 
 ---
 
