@@ -10,11 +10,12 @@ export async function applyClientOverrides(config: ClientConfig): Promise<Client
   if (!sb) return config;
   const { data, error } = await sb
     .from('clients')
-    .select('address, business_hours')
+    .select('address, business_hours, google_review_url')
     .eq('client_id', config.clientId)
     .maybeSingle();
   if (error || !data) return config;
   if (data.address != null) config.address = data.address;
   if (data.business_hours) config.businessHours = data.business_hours;
+  if (data.google_review_url != null) config.googleReviewUrl = data.google_review_url;
   return config;
 }

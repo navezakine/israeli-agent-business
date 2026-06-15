@@ -10,6 +10,7 @@ export interface Toggles {
   remindersEnabled: boolean;
   followupsEnabled: boolean;
   hitlEnabled: boolean;
+  reviewsEnabled: boolean;
   reminderHours: number[] | null; // null → use config.json default
 }
 
@@ -19,6 +20,7 @@ const DEFAULTS: Toggles = {
   remindersEnabled: true,
   followupsEnabled: true,
   hitlEnabled: false,
+  reviewsEnabled: true,
   reminderHours: null,
 };
 
@@ -27,7 +29,9 @@ export async function getToggles(clientId: string): Promise<Toggles> {
   if (!sb) return DEFAULTS;
   const { data, error } = await sb
     .from('client_settings')
-    .select('bot_active, auto_reply, reminders_enabled, followups_enabled, hitl_enabled, reminder_hours')
+    .select(
+      'bot_active, auto_reply, reminders_enabled, followups_enabled, hitl_enabled, reviews_enabled, reminder_hours',
+    )
     .eq('client_id', clientId)
     .maybeSingle();
   if (error || !data) {
@@ -40,6 +44,7 @@ export async function getToggles(clientId: string): Promise<Toggles> {
     remindersEnabled: data.reminders_enabled,
     followupsEnabled: data.followups_enabled,
     hitlEnabled: data.hitl_enabled,
+    reviewsEnabled: data.reviews_enabled ?? true,
     reminderHours: data.reminder_hours ?? null,
   };
 }

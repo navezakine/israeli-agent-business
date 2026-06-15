@@ -6,6 +6,7 @@ import { getToggles } from '../db/settings.js';
 import { applyClientOverrides } from '../db/profile.js';
 import { runReminders } from '../reminders/reminders.js';
 import { runLeadFollowups } from '../reminders/leads.js';
+import { runReviewRequests } from '../reminders/reviews.js';
 import { notifyError } from '../alerts/alerts.js';
 
 export const cronRouter = Router();
@@ -46,6 +47,10 @@ cronRouter.post('/run', async (req, res) => {
         leads:
           toggles.botActive && toggles.followupsEnabled
             ? await runLeadFollowups(config)
+            : { skipped: ['disabled'] },
+        reviews:
+          toggles.botActive && toggles.reviewsEnabled
+            ? await runReviewRequests(config)
             : { skipped: ['disabled'] },
       };
     } catch (err) {

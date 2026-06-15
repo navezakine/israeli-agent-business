@@ -11,6 +11,7 @@ export interface ClientConfig {
   language: string;
   address?: string; // used in reminder messages
   logSheetId?: string; // Google Sheet ID for interaction logging (optional)
+  googleReviewUrl?: string; // clinic's Google "write a review" link (review requests)
   hitlMode: boolean;
   hitlApproverWhatsapp: string;
   businessHours: Record<string, string | null>; // keys: sun, mon, ... sat

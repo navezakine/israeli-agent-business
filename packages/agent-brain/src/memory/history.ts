@@ -270,3 +270,59 @@ export async function getDueLeads(clientId: string, now: number): Promise<Lead[]
     dueAt: new Date(r.due_at as string).getTime(),
   }));
 }
+
+// ── review-request dedup ─────────────────────────────────────────
+export async function wasReviewRequested(clientId: string, eventId: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const { data, error } = await sb
+    .from('review_requests')
+    .select('event_id')
+    .eq('client_id', clientId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+  if (error) {
+    console.error('[history] wasReviewRequested', error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+/** Has this contact been asked for a review within the last `sinceMs`? */
+export async function recentReviewForPhone(
+  clientId: string,
+  phone: string,
+  sinceMs: number,
+): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const since = new Date(Date.now() - sinceMs).toISOString();
+  const { data, error } = await sb
+    .from('review_requests')
+    .select('event_id')
+    .eq('client_id', clientId)
+    .eq('phone', phone)
+    .gte('sent_at', since)
+    .limit(1);
+  if (error) {
+    console.error('[history] recentReviewForPhone', error.message);
+    return false;
+  }
+  return Boolean(data && data.length);
+}
+
+export async function markReviewRequested(
+  clientId: string,
+  eventId: string,
+  phone: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('review_requests')
+    .upsert(
+      { client_id: clientId, event_id: eventId, phone },
+      { onConflict: 'client_id,event_id', ignoreDuplicates: true },
+    );
+  if (error) console.error('[history] markReviewRequested', error.message);
+}
