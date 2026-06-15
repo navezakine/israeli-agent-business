@@ -453,6 +453,7 @@ export async function openHandoff(
   clientId: string,
   phone: string,
   reason: string,
+  question: string | null = null,
 ): Promise<boolean> {
   const sb = getSupabase();
   if (!sb) return false;
@@ -460,12 +461,34 @@ export async function openHandoff(
   if (existing) return false; // already handed off; don't duplicate
   const { error } = await sb
     .from('handoffs')
-    .insert({ client_id: clientId, phone, reason, status: 'open' });
+    .insert({ client_id: clientId, phone, reason, question, status: 'open' });
   if (error) {
     console.error('[history] openHandoff', error.message);
     return false;
   }
   return true;
+}
+
+/** All open handoffs for a clinic (used to route an owner's answer to a patient). */
+export async function getOpenHandoffs(
+  clientId: string,
+): Promise<Array<{ phone: string; question: string | null }>> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from('handoffs')
+    .select('phone, question')
+    .eq('client_id', clientId)
+    .eq('status', 'open')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[history] getOpenHandoffs', error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => ({
+    phone: r.phone as string,
+    question: (r.question as string) ?? null,
+  }));
 }
 
 /** Whether this patient currently has an open handoff. */
@@ -551,4 +574,72 @@ export async function expireOldHandoffs(clientId: string, olderThanMs: number): 
     .eq('status', 'open')
     .lt('created_at', cutoff);
   if (error) console.error('[history] expireOldHandoffs', error.message);
+}
+
+// ── Self-improving FAQ ───────────────────────────────────────
+// Owner answers to escalated questions become suggestions; once approved
+// they are injected into the agent's knowledge base (see db/profile.ts).
+
+/** Record a (question, answer) pair the owner provided, pending their approval. */
+export async function createFaqSuggestion(
+  clientId: string,
+  question: string,
+  answer: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('faq_suggestions')
+    .insert({ client_id: clientId, question, answer, status: 'pending' });
+  if (error) console.error('[history] createFaqSuggestion', error.message);
+}
+
+/** Approved Q&A pairs, injected into the system prompt at runtime. */
+export async function getApprovedFaqs(
+  clientId: string,
+): Promise<Array<{ question: string; answer: string }>> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from('faq_suggestions')
+    .select('question, answer')
+    .eq('client_id', clientId)
+    .eq('status', 'approved')
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('[history] getApprovedFaqs', error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => ({ question: r.question as string, answer: r.answer as string }));
+}
+
+/**
+ * Set the status of the most recent PENDING suggestion (what the owner approves
+ * via WhatsApp with "הוסף" / dismisses with "דלג"). Returns the question text of
+ * the affected suggestion, or null if there was no pending suggestion.
+ */
+export async function decideLatestFaqSuggestion(
+  clientId: string,
+  status: 'approved' | 'dismissed',
+): Promise<string | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from('faq_suggestions')
+    .select('id, question')
+    .eq('client_id', clientId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const { error: upErr } = await sb
+    .from('faq_suggestions')
+    .update({ status, decided_at: new Date().toISOString() })
+    .eq('id', data.id as number);
+  if (upErr) {
+    console.error('[history] decideLatestFaqSuggestion', upErr.message);
+    return null;
+  }
+  return data.question as string;
 }

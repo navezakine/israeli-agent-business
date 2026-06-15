@@ -16,6 +16,7 @@ export interface ClientConfig {
   depositAmount?: number; // ₪, for deposit mode
   paymentLink?: string; // clinic's own payment link (card / payment page)
   paymentLinkBit?: string; // optional Bit link
+  extraFaqs?: string; // approved self-improving-FAQ answers, injected into the prompt
   hitlMode: boolean;
   hitlApproverWhatsapp: string;
   businessHours: Record<string, string | null>; // keys: sun, mon, ... sat

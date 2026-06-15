@@ -60,7 +60,7 @@ Your default language is natural, informal Israeli Hebrew — conversational Wha
 ${vault.business}
 
 == FREQUENTLY ASKED QUESTIONS ==
-${vault.faqs}
+${vault.faqs}${config.extraFaqs ? `\n\n# שאלות ותשובות שנוספו על ידי צוות המרפאה:\n${config.extraFaqs}` : ''}
 
 == TEAM & ESCALATION ==
 ${vault.team}

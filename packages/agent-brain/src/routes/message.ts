@@ -13,7 +13,11 @@ import {
   markBookedLead,
   openHandoff,
   getOpenHandoff,
+  getOpenHandoffs,
+  resolveHandoff,
   resolveHandoffByLast4,
+  createFaqSuggestion,
+  decideLatestFaqSuggestion,
 } from '../memory/history.js';
 import { getToggles } from '../db/settings.js';
 import { applyClientOverrides } from '../db/profile.js';
@@ -55,6 +59,11 @@ const BOOKING_HINT = /תור|לקבוע|להזמין|פנוי|זמין|מתי י
 // Operator command (from the clinic's number) to end a human handoff so the bot
 // resumes for that patient, e.g. "חזרה 1234" / "resume 1234" (1234 = last 4 digits).
 const RESUME_CMD = /^(?:חזרה|resume|המשך|continue)\b\s*(\d{2,})?/i;
+
+// Operator commands to approve / dismiss the latest pending self-improving-FAQ
+// suggestion (e.g. after answering an escalated question through the bot).
+const ADD_FAQ_CMD = /^(?:הוסף|תוסיף|להוסיף|add|כן)\b/i;
+const SKIP_FAQ_CMD = /^(?:דלג|התעלם|skip|לא)\b/i;
 
 // Booking interest with no completed booking → track as a lead for follow-up.
 // A completed booking resolves any existing lead (recovered if we'd nudged it).
@@ -112,9 +121,9 @@ messageRouter.post('/', async (req, res) => {
     const canReply = toggles.botActive && toggles.autoReply;
     const fromApprover = normalizePhone(from) === normalizePhone(config.hitlApproverWhatsapp);
 
-    // ── Operator: end a human handoff so the bot resumes for a patient ──
-    // e.g. the clinic texts "חזרה 1234". Checked before everything else.
+    // ── Operator commands (from the clinic's number) ──────────
     if (fromApprover) {
+      // (1) End a handoff and let the bot resume, e.g. "חזרה 1234".
       const m = RESUME_CMD.exec(body);
       if (m) {
         const resumed = await resolveHandoffByLast4(clientId, (m[1] ?? '').slice(-4));
@@ -124,6 +133,75 @@ messageRouter.post('/', async (req, res) => {
             : 'לא מצאתי שיחה פתוחה שהועברה לטיפול אנושי. כדי לציין מטופל ספציפי: "חזרה" ואחריו 4 הספרות האחרונות של מספרו.',
           intent: 'handoff_resume',
         });
+        return;
+      }
+
+      // (2) Approve / dismiss the latest self-improving-FAQ suggestion.
+      if (ADD_FAQ_CMD.test(body)) {
+        const q = await decideLatestFaqSuggestion(clientId, 'approved');
+        res.json({
+          reply: q
+            ? `✅ נוסף למאגר הידע. מעכשיו Replai יידע לענות על "${q}".`
+            : 'אין הצעה ממתינה להוספה כרגע.',
+          intent: 'faq_decision',
+        });
+        return;
+      }
+      if (SKIP_FAQ_CMD.test(body)) {
+        const q = await decideLatestFaqSuggestion(clientId, 'dismissed');
+        res.json({
+          reply: q ? 'סבבה, לא הוספתי את זה למאגר 👍' : 'אין הצעה ממתינה כרגע.',
+          intent: 'faq_decision',
+        });
+        return;
+      }
+
+      // (3) Otherwise, if a conversation is handed off, treat this as the owner's
+      // answer: relay it to the patient, close the handoff, and (if we captured
+      // the original question) save it as a FAQ suggestion to learn from.
+      const open = await getOpenHandoffs(clientId);
+      if (open.length) {
+        // Pick the target. With one open handoff the whole message is the answer;
+        // with several, the owner prefixes the patient's last 4 digits.
+        let target = open.length === 1 ? open[0] : undefined;
+        let answer = body;
+        if (!target) {
+          const lead = body.match(/^\s*(\d{3,})[\s:,-]+([\s\S]+)$/);
+          if (lead) {
+            const last4 = lead[1].slice(-4);
+            target = open.find((h) => h.phone.replace(/\D/g, '').endsWith(last4));
+            if (target) answer = lead[2].trim();
+          }
+          if (!target) {
+            res.json({
+              reply: 'יש כמה שיחות פתוחות. ענה/י בפורמט: 4 ספרות אחרונות של המטופל, רווח, ואז התשובה.',
+              intent: 'handoff_answer',
+            });
+            return;
+          }
+        }
+        try {
+          await whatsapp.sendWhatsApp(target.phone, answer);
+        } catch (err) {
+          console.error('[handoff] relay answer failed', err);
+        }
+        await appendMessage({
+          clientId,
+          phoneNumber: target.phone,
+          role: 'assistant',
+          content: answer,
+          intent: 'human_answer',
+        });
+        await resolveHandoff(clientId, target.phone);
+        if (target.question) {
+          await createFaqSuggestion(clientId, target.question, answer);
+          res.json({
+            reply: `✅ נשלח ל-${target.phone}. רוצה שאוסיף את זה למאגר הידע כדי ש-Replai יענה על זה בעצמו בפעם הבאה? השב/י "הוסף" או "דלג".`,
+            intent: 'handoff_answer',
+          });
+        } else {
+          res.json({ reply: `✅ נשלח ל-${target.phone}.`, intent: 'handoff_answer' });
+        }
         return;
       }
     }
@@ -300,7 +378,7 @@ messageRouter.post('/', async (req, res) => {
     // (the model sometimes calls escalate_to_human without writing a reply).
     if (result.actionRequired?.type === 'escalate_to_human') {
       const reason = (result.actionRequired.payload as { reason?: string } | undefined)?.reason;
-      await openHandoff(clientId, from, reason ?? 'escalation');
+      await openHandoff(clientId, from, reason ?? 'escalation', body);
       try {
         await whatsapp.sendWhatsApp(
           config.hitlApproverWhatsapp,
