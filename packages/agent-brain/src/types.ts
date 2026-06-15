@@ -12,6 +12,10 @@ export interface ClientConfig {
   address?: string; // used in reminder messages
   logSheetId?: string; // Google Sheet ID for interaction logging (optional)
   googleReviewUrl?: string; // clinic's Google "write a review" link (review requests)
+  paymentMode?: string; // 'deposit' | 'full' | 'off'
+  depositAmount?: number; // ₪, for deposit mode
+  paymentLink?: string; // clinic's own payment link (card / payment page)
+  paymentLinkBit?: string; // optional Bit link
   hitlMode: boolean;
   hitlApproverWhatsapp: string;
   businessHours: Record<string, string | null>; // keys: sun, mon, ... sat

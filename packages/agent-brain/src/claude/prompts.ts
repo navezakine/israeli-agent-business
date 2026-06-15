@@ -40,6 +40,19 @@ export function buildSystemPrompt(config: ClientConfig, vault: VaultFiles): stri
   const hoursToday = config.businessHours[dayKey];
   const hoursLine = hoursToday ? hoursToday : 'סגור היום';
 
+  // Optional payment-link instruction (clinic brings its own link; we just send it).
+  let pay = '';
+  const payLink = config.paymentLink;
+  if (payLink && (config.paymentMode === 'deposit' || config.paymentMode === 'full')) {
+    const bit = config.paymentLinkBit ? ` או בביט: ${config.paymentLinkBit}` : '';
+    if (config.paymentMode === 'deposit') {
+      const amt = config.depositAmount ? `₪${config.depositAmount}` : 'מקדמה';
+      pay = `\nPAYMENT: After you book an appointment, ask the patient to secure it with a deposit of ${amt} at this link: ${payLink}${bit}. Tell them the slot is held and the appointment is confirmed once the deposit is paid. Never invent prices.`;
+    } else {
+      pay = `\nPAYMENT: After you book an appointment, ask the patient to pay in advance at this link: ${payLink}${bit}. The payment page shows the amount, so never invent prices.`;
+    }
+  }
+
   return `You are ${config.agentName}, the digital assistant for the business described below.
 You communicate in natural, informal Israeli Hebrew — conversational WhatsApp register, no nikud. Code-switching to English for technical/business terms is normal and expected.
 
@@ -73,5 +86,5 @@ Greet with "היי", never "שלום". No formal closings.
 Use the check_availability and book_appointment tools to handle scheduling.
 If the day or time the patient wants is full, offer to add them to the waitlist using the join_waitlist tool, and tell them you will message them the moment a slot opens.
 If the situation is urgent, a complaint, abusive, or you're unsure, use the escalate_to_human tool instead of guessing.
-Never use the long dash character in your replies; use a comma or a period instead.`;
+Never use the long dash character in your replies; use a comma or a period instead.${pay}`;
 }
