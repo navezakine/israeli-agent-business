@@ -18,6 +18,7 @@ import type { ClientConfig, AgentResult } from '../types.js';
 import { runAgent } from '../claude/client.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { interpretApproval, buildHitlPrompt, normalizePhone } from '../hitl/hitl.js';
+import { sendOnChannel } from '../meta/meta.js';
 import { appendLogRow } from '../google/sheets.js';
 import { notifyError } from '../alerts/alerts.js';
 import type { MessageResponse } from '../types.js';
@@ -112,7 +113,13 @@ messageRouter.post('/', async (req, res) => {
           decision.type === 'override' && decision.text ? decision.text : pending.draftReply;
         let ack = `✅ נשלח ל-${pending.patientPhone}`;
         try {
-          await whatsapp.sendWhatsApp(pending.patientPhone, finalText);
+          if (pending.channel && pending.channel !== 'whatsapp') {
+            // draft came from Instagram/Facebook → send the approved reply back there
+            const ok = await sendOnChannel(pending, finalText);
+            if (!ok) throw new Error('meta send failed');
+          } else {
+            await whatsapp.sendWhatsApp(pending.recipient ?? pending.patientPhone, finalText);
+          }
         } catch (err) {
           console.error('[hitl] send to patient failed', err);
           ack = '⚠️ ההודעה לא נשלחה (תקלת שליחה). נסה שוב.';

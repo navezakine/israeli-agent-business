@@ -9,7 +9,9 @@ import type { ConversationMessage } from '../types.js';
 const COLD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // ── conversation messages (bot memory + analytics) ───────────────
-export async function appendMessage(m: ConversationMessage & { hitl?: boolean }): Promise<void> {
+export async function appendMessage(
+  m: ConversationMessage & { hitl?: boolean; channel?: string },
+): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
   const { error } = await sb.from('messages').insert({
@@ -20,6 +22,7 @@ export async function appendMessage(m: ConversationMessage & { hitl?: boolean })
     intent: m.intent ?? null,
     action: m.actionTaken ?? null,
     hitl: m.hitl ?? false,
+    channel: m.channel ?? 'whatsapp',
   });
   if (error) console.error('[history] appendMessage', error.message);
 }
@@ -28,16 +31,19 @@ export async function getRecentMessages(
   clientId: string,
   phoneNumber: string,
   limit = 10,
+  channel?: string,
 ): Promise<ConversationMessage[]> {
   const sb = getSupabase();
   if (!sb) return [];
   const since = new Date(Date.now() - COLD_WINDOW_MS).toISOString();
-  const { data, error } = await sb
+  let query = sb
     .from('messages')
     .select('phone, role, content, intent, action, created_at')
     .eq('client_id', clientId)
     .eq('phone', phoneNumber)
-    .gte('created_at', since)
+    .gte('created_at', since);
+  if (channel) query = query.eq('channel', channel);
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {
@@ -102,17 +108,25 @@ export interface HitlPending {
   draftReply: string;
   intent?: string;
   actionTaken?: string;
+  channel?: string; // 'whatsapp' | 'instagram' | 'facebook'
+  recipient?: string; // who to reply to on that channel (phone / IGSID / PSID)
+  accountExternalId?: string; // which Meta page/IG account to send from
 }
 
 export async function setPending(p: HitlPending): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
-  const { error } = await sb
-    .from('hitl_pending')
-    .upsert(
-      { client_id: p.clientId, patient_phone: p.patientPhone, draft: p.draftReply },
-      { onConflict: 'client_id' },
-    );
+  const { error } = await sb.from('hitl_pending').upsert(
+    {
+      client_id: p.clientId,
+      patient_phone: p.patientPhone,
+      draft: p.draftReply,
+      channel: p.channel ?? 'whatsapp',
+      recipient: p.recipient ?? p.patientPhone,
+      account_external_id: p.accountExternalId ?? null,
+    },
+    { onConflict: 'client_id' },
+  );
   if (error) console.error('[history] setPending', error.message);
 }
 
@@ -121,7 +135,7 @@ export async function getPending(clientId: string): Promise<HitlPending | undefi
   if (!sb) return undefined;
   const { data, error } = await sb
     .from('hitl_pending')
-    .select('client_id, patient_phone, draft')
+    .select('client_id, patient_phone, draft, channel, recipient, account_external_id')
     .eq('client_id', clientId)
     .maybeSingle();
   if (error) {
@@ -129,7 +143,14 @@ export async function getPending(clientId: string): Promise<HitlPending | undefi
     return undefined;
   }
   if (!data) return undefined;
-  return { clientId: data.client_id, patientPhone: data.patient_phone, draftReply: data.draft };
+  return {
+    clientId: data.client_id,
+    patientPhone: data.patient_phone,
+    draftReply: data.draft,
+    channel: data.channel ?? 'whatsapp',
+    recipient: data.recipient ?? data.patient_phone,
+    accountExternalId: data.account_external_id ?? undefined,
+  };
 }
 
 export async function clearPending(clientId: string): Promise<void> {
