@@ -357,6 +357,52 @@ em { font-style: normal; }
 .cap h3 { font-size: 19px; font-weight: 800; }
 .cap p { font-size: 15px; color: var(--ink-2); margin-top: 8px; }
 
+/* ── full feature catalog ── */
+.feat-main { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 56px; }
+.feat-hero {
+  position: relative;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 32px 32px 30px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease);
+}
+.feat-hero::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: linear-gradient(180deg, var(--emerald), var(--emerald-d));
+}
+.feat-hero:hover { transform: translateY(-5px); box-shadow: var(--shadow-soft); }
+.feat-ico { width: 56px; height: 56px; border-radius: 16px; background: var(--emerald-l); color: var(--emerald-d); display: grid; place-items: center; margin-bottom: 20px; }
+.feat-ico svg { width: 28px; height: 28px; }
+.feat-hero h3 { font-family: var(--font-display); font-size: 25px; font-weight: 800; letter-spacing: -0.01em; }
+.feat-hero p { font-size: 16px; color: var(--ink-2); margin-top: 10px; line-height: 1.65; }
+
+.feat-extra-label { text-align: center; margin-top: 50px; color: var(--ink-3); font-weight: 700; letter-spacing: 0.02em; }
+.feat-extras { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 18px; margin-top: 20px; padding: 0; }
+.feat-extras li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px 15px;
+}
+.feat-extras li::before { content: "✓"; color: var(--emerald); font-weight: 900; line-height: 1.4; }
+.soon { font-size: 11px; background: var(--emerald-l); color: var(--emerald-d); border-radius: 999px; padding: 2px 9px; margin-inline-start: 6px; font-weight: 700; white-space: nowrap; }
+
+@media (max-width: 860px) { .feat-extras { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .feat-main { grid-template-columns: 1fr; } .feat-extras { grid-template-columns: 1fr; } }
+
 /* ── why / compare ────────────────────────────────── */
 .why { background: var(--paper-2); }
 .why-quote { max-width: 880px; margin-inline: auto; text-align: center; }
