@@ -326,3 +326,121 @@ export async function markReviewRequested(
     );
   if (error) console.error('[history] markReviewRequested', error.message);
 }
+
+// ── waitlist ─────────────────────────────────────────────────────
+export interface WaitlistEntry {
+  clientId: string;
+  phone: string;
+  name?: string | null;
+  channel: string;
+  desiredDate?: string | null;
+  note?: string | null;
+  status: string;
+}
+
+export async function addWaitlist(
+  clientId: string,
+  phone: string,
+  name: string | null,
+  desiredDate: string | null,
+  note: string | null,
+  channel = 'whatsapp',
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from('waitlist').upsert(
+    {
+      client_id: clientId,
+      phone,
+      name,
+      desired_date: desiredDate,
+      note,
+      channel,
+      status: 'open',
+      offered_at: null,
+      offered_slot: null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'client_id,phone' },
+  );
+  if (error) console.error('[history] addWaitlist', error.message);
+}
+
+export async function getOpenWaitlist(clientId: string): Promise<WaitlistEntry[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from('waitlist')
+    .select('phone, name, channel, desired_date, note, status')
+    .eq('client_id', clientId)
+    .eq('status', 'open')
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('[history] getOpenWaitlist', error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => ({
+    clientId,
+    phone: r.phone as string,
+    name: (r.name as string) ?? null,
+    channel: (r.channel as string) ?? 'whatsapp',
+    desiredDate: (r.desired_date as string) ?? null,
+    note: (r.note as string) ?? null,
+    status: r.status as string,
+  }));
+}
+
+export async function markWaitlistOffered(
+  clientId: string,
+  phone: string,
+  slot: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('waitlist')
+    .update({ status: 'offered', offered_at: new Date().toISOString(), offered_slot: slot, updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('phone', phone);
+  if (error) console.error('[history] markWaitlistOffered', error.message);
+}
+
+/** Re-open offers that were not taken within the timeout, so the slot can go to the next person. */
+export async function revertStaleWaitlistOffers(clientId: string, olderThanMs: number): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const { error } = await sb
+    .from('waitlist')
+    .update({ status: 'open', offered_slot: null, updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('status', 'offered')
+    .lt('offered_at', cutoff);
+  if (error) console.error('[history] revertStaleWaitlistOffers', error.message);
+}
+
+export async function expireOldWaitlist(clientId: string, olderThanMs: number): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const { error } = await sb
+    .from('waitlist')
+    .update({ status: 'expired', updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .in('status', ['open', 'offered'])
+    .lt('created_at', cutoff);
+  if (error) console.error('[history] expireOldWaitlist', error.message);
+}
+
+/** When a waitlisted patient books, close their entry. */
+export async function markWaitlistBooked(clientId: string, phone: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from('waitlist')
+    .update({ status: 'booked', updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('phone', phone)
+    .in('status', ['open', 'offered']);
+  if (error) console.error('[history] markWaitlistBooked', error.message);
+}

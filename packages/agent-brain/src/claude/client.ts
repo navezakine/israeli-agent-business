@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { tools } from './tools.js';
 import { buildSystemPrompt } from './prompts.js';
 import * as calendar from '../calendar/google.js';
+import { addWaitlist, markWaitlistBooked } from '../memory/history.js';
 import type {
   ActionRequired,
   AgentResult,
@@ -79,6 +80,7 @@ async function executeTool(
         notes: [input.notes, typed].filter(Boolean).join(' ').trim() || undefined,
       };
       if (!calendar.isConfigured()) {
+        await markWaitlistBooked(config.clientId, from);
         return {
           intent: 'booking',
           action: { type: 'book_appointment', payload: details },
@@ -87,6 +89,7 @@ async function executeTool(
       }
       try {
         const event = await calendar.bookAppointment(config, details);
+        await markWaitlistBooked(config.clientId, from);
         return {
           intent: 'booking',
           action: { type: 'book_appointment', payload: { ...details, ...event } },
@@ -104,6 +107,21 @@ async function executeTool(
         action: { type: 'escalate_to_human', payload: input },
         result: { escalated: true },
       };
+    }
+    case 'join_waitlist': {
+      const input = block.input as { patientName: string; preferredDay?: string; note?: string };
+      try {
+        await addWaitlist(
+          config.clientId,
+          from,
+          input.patientName,
+          input.preferredDay ?? null,
+          input.note ?? null,
+        );
+      } catch (err) {
+        console.error('[join_waitlist]', err);
+      }
+      return { intent: 'booking', result: { added: true } };
     }
     default:
       return { result: { error: `unknown tool: ${block.name}` } };

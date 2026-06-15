@@ -11,6 +11,7 @@ export interface Toggles {
   followupsEnabled: boolean;
   hitlEnabled: boolean;
   reviewsEnabled: boolean;
+  waitlistEnabled: boolean;
   reminderHours: number[] | null; // null → use config.json default
 }
 
@@ -21,6 +22,7 @@ const DEFAULTS: Toggles = {
   followupsEnabled: true,
   hitlEnabled: false,
   reviewsEnabled: true,
+  waitlistEnabled: true,
   reminderHours: null,
 };
 
@@ -30,7 +32,7 @@ export async function getToggles(clientId: string): Promise<Toggles> {
   const { data, error } = await sb
     .from('client_settings')
     .select(
-      'bot_active, auto_reply, reminders_enabled, followups_enabled, hitl_enabled, reviews_enabled, reminder_hours',
+      'bot_active, auto_reply, reminders_enabled, followups_enabled, hitl_enabled, reviews_enabled, waitlist_enabled, reminder_hours',
     )
     .eq('client_id', clientId)
     .maybeSingle();
@@ -45,6 +47,7 @@ export async function getToggles(clientId: string): Promise<Toggles> {
     followupsEnabled: data.followups_enabled,
     hitlEnabled: data.hitl_enabled,
     reviewsEnabled: data.reviews_enabled ?? true,
+    waitlistEnabled: data.waitlist_enabled ?? true,
     reminderHours: data.reminder_hours ?? null,
   };
 }

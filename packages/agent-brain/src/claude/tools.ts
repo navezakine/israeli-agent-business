@@ -52,4 +52,21 @@ export const tools: Anthropic.Messages.Tool[] = [
       required: ['reason', 'urgency'],
     },
   },
+  {
+    name: 'join_waitlist',
+    description:
+      'Add the patient to the waitlist when the day or time they want is full, or if they ask to be notified when a slot opens. The system will message them automatically the moment a matching slot frees up.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        patientName: { type: 'string' },
+        preferredDay: {
+          type: 'string',
+          description: "When they want it: 'today', 'tomorrow', a 'YYYY-MM-DD' date, or 'flexible'",
+        },
+        note: { type: 'string', description: 'Optional: treatment type or time preference' },
+      },
+      required: ['patientName'],
+    },
+  },
 ];
