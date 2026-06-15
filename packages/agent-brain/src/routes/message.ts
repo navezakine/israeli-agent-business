@@ -126,12 +126,37 @@ messageRouter.post('/', async (req, res) => {
           return;
         }
       } else {
-        await appendMessage({ clientId, phoneNumber: from, role: 'user', content: '[קובץ מדיה]' });
-        const fallback = 'היי! כרגע אני יכול לקרוא טקסט והודעות קוליות. אפשר לכתוב לי כאן? 🙂';
+        // Photo / video / file → hand off to a human. Replai must NEVER interpret
+        // a patient's image or give any medical advice, so the media is never sent
+        // to Claude: we notify the clinic's human and reply with a safe handoff.
+        const kind = mediaContentType?.startsWith('image')
+          ? 'תמונה'
+          : mediaContentType?.startsWith('video')
+            ? 'סרטון'
+            : 'קובץ';
+        await appendMessage({ clientId, phoneNumber: from, role: 'user', content: `[${kind}]` });
+
+        // Best-effort alert to the clinic's human (never blocks the patient reply).
+        try {
+          await whatsapp.sendWhatsApp(
+            config.hitlApproverWhatsapp,
+            `📸 מטופל (${from}) שלח ${kind} בצ'אט ומבקש מענה. Replai לא מנתח תמונות ולא נותן ייעוץ רפואי, לכן העברתי את הפנייה אליך. כדאי לחזור אליו/אליה.`,
+          );
+        } catch (err) {
+          console.error('[media] human handoff notify failed', err);
+        }
+
+        await logInteraction(config, from, 'escalation', 'escalate_to_human', false);
+
+        const handoff = `קיבלנו את ה${kind} ששלחת 🙏 אני לא יכולה לבדוק תמונות וקבצים או לתת ייעוץ רפואי, אז העברתי אותך לצוות המרפאה והם יחזרו אליך בהקדם. אם בינתיים יש שאלה על תורים, שעות או מחירים, אני כאן 😊`;
         res.json(
           canReply
-            ? { reply: fallback, intent: 'media_unsupported' }
-            : { reply: '', intent: 'media_unsupported', botPaused: true },
+            ? {
+                reply: handoff,
+                intent: 'escalation',
+                actionRequired: { type: 'escalate_to_human', payload: { reason: `patient sent ${kind}`, urgency: 'normal' } },
+              }
+            : { reply: '', intent: 'escalation', botPaused: true },
         );
         return;
       }
@@ -221,6 +246,24 @@ messageRouter.post('/', async (req, res) => {
     await appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
 
     const result = await runAgent({ config, vault, history, userMessage: body, from });
+
+    // ── Escalation → actively hand the conversation to a human ──
+    // Ping the clinic's human, and make sure the patient never gets silence
+    // (the model sometimes calls escalate_to_human without writing a reply).
+    if (result.actionRequired?.type === 'escalate_to_human') {
+      const reason = (result.actionRequired.payload as { reason?: string } | undefined)?.reason;
+      try {
+        await whatsapp.sendWhatsApp(
+          config.hitlApproverWhatsapp,
+          `🔔 מטופל (${from}) צריך מענה אנושי${reason ? ` (${reason})` : ''}. Replai העביר את השיחה אליך.`,
+        );
+      } catch (err) {
+        console.error('[escalate] human notify failed', err);
+      }
+      if (!result.reply) {
+        result.reply = 'אני מעבירה אותך לצוות המרפאה והם יחזרו אליך בהקדם 🙏';
+      }
+    }
 
     await appendMessage({
       clientId,
