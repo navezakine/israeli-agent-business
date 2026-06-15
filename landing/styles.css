@@ -617,6 +617,51 @@ input[type="range"]::-moz-range-thumb {
   .showcase-grid { grid-template-columns: 1fr; }
 }
 
+/* ── flow / animated journey ──────────────────────── */
+.flow-track { position: relative; margin-top: 60px; }
+.flow-line {
+  position: absolute; top: 39px; inset-inline: 8%;
+  height: 3px; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--emerald-l) 7%, var(--emerald-l) 93%, transparent);
+}
+.flow-comet {
+  position: absolute; top: 50%; left: 0; transform: translateY(-50%);
+  width: 90px; height: 9px; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--emerald), transparent);
+  animation: flowComet 5.5s linear infinite;
+}
+.flow-steps {
+  list-style: none; position: relative; z-index: 1; padding: 0;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px;
+}
+.flow-node { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 11px; }
+.flow-ico {
+  width: 80px; height: 80px; border-radius: 999px; display: grid; place-items: center;
+  background: var(--white); border: 1px solid var(--line); color: var(--emerald-d);
+  box-shadow: var(--shadow-sm);
+  animation: flowPulse 5.5s var(--ease) infinite; animation-delay: calc(var(--i) * 0.8s);
+}
+.flow-ico svg { width: 33px; height: 33px; }
+.flow-label { font-weight: 800; font-size: 15.5px; }
+.flow-cap { font-size: 13px; color: var(--ink-3); line-height: 1.5; max-width: 165px; }
+
+@keyframes flowComet {
+  0% { left: 100%; opacity: 0; }
+  6% { opacity: 1; }
+  94% { opacity: 1; }
+  100% { left: -8%; opacity: 0; }
+}
+@keyframes flowPulse {
+  0%, 70%, 100% { transform: translateY(0); box-shadow: var(--shadow-sm); border-color: var(--line); background: var(--white); }
+  9%, 17% { transform: translateY(-6px); box-shadow: 0 16px 32px -12px rgba(14,122,87,0.5); border-color: var(--emerald); background: var(--emerald-l); }
+}
+@keyframes flowCometV {
+  0% { top: -8%; opacity: 0; }
+  6% { opacity: 1; }
+  94% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
 /* ── reveal animation ─────────────────────────────── */
 .reveal { opacity: 0; transform: translateY(28px); filter: blur(6px); transition: opacity 0.8s var(--ease-out), transform 0.8s var(--ease-out), filter 0.8s var(--ease-out); }
 .reveal.in { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -647,6 +692,21 @@ input[type="range"]::-moz-range-thumb {
   .calc-card { grid-template-columns: 1fr; }
   .calc-amount { font-size: clamp(40px, 12vw, 56px); }
   .info { display: none; }
+  /* flow: vertical timeline */
+  .flow-steps { grid-template-columns: 1fr; gap: 22px; max-width: 320px; margin-inline: auto; }
+  .flow-node { flex-direction: row; align-items: center; text-align: start; gap: 16px; }
+  .flow-ico { width: 58px; height: 58px; flex-shrink: 0; }
+  .flow-ico svg { width: 26px; height: 26px; }
+  .flow-cap { max-width: none; }
+  .flow-line {
+    top: 30px; bottom: 30px; height: auto; width: 3px; inset-inline: auto; inset-inline-end: 29px;
+    background: linear-gradient(180deg, transparent, var(--emerald-l) 7%, var(--emerald-l) 93%, transparent);
+  }
+  .flow-comet {
+    top: 0; left: 50%; transform: translateX(-50%); width: 9px; height: 90px;
+    background: linear-gradient(180deg, transparent, var(--emerald), transparent);
+    animation-name: flowCometV;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto; }
