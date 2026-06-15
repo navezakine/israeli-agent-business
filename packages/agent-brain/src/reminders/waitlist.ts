@@ -6,6 +6,7 @@
 import type { ClientConfig } from '../types.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { getAvailableSlots, isConfigured } from '../calendar/google.js';
+import { canSendOutreach } from '../schedule.js';
 import {
   getOpenWaitlist,
   markWaitlistOffered,
@@ -15,8 +16,6 @@ import {
 
 const OFFER_TIMEOUT_HOURS = 6; // re-open an offer not taken in time
 const MAX_AGE_DAYS = 14; // expire stale waitlist entries
-const DAY_START = 9;
-const DAY_END = 20;
 
 interface WaitlistResult {
   checked: number;
@@ -26,13 +25,6 @@ interface WaitlistResult {
 
 function fmt(startISO: string, tz: string, opts: Intl.DateTimeFormatOptions): string {
   return new Intl.DateTimeFormat('he-IL', { ...opts, timeZone: tz }).format(new Date(startISO));
-}
-function localHour(tz: string): number {
-  return Number(
-    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(
-      new Date(),
-    ),
-  );
 }
 function buildOffer(name: string | null | undefined, startISO: string, tz: string): string {
   const time = fmt(startISO, tz, { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -61,9 +53,8 @@ export async function runWaitlist(
     await expireOldWaitlist(config.clientId, MAX_AGE_DAYS * 86_400_000);
   }
 
-  const hour = localHour(config.timezone);
-  if (!opts.dryRun && (hour < DAY_START || hour >= DAY_END)) {
-    result.skipped.push('outside-hours');
+  if (!opts.dryRun && !canSendOutreach(config)) {
+    result.skipped.push('closed-or-shabbat');
     return result;
   }
 

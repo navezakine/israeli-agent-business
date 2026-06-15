@@ -4,6 +4,7 @@
 
 import type { ClientConfig } from '../types.js';
 import * as whatsapp from '../twilio/whatsapp.js';
+import { canSendOutreach } from '../schedule.js';
 import { getSupabase } from '../db/supabase.js';
 import {
   wasReviewRequested,
@@ -14,8 +15,6 @@ import {
 const REVIEW_DELAY_HOURS = 3; // wait this long after the appointment ends
 const MAX_AGE_DAYS = 7; // never ask about visits older than this
 const PER_PATIENT_DAYS = 30; // do not re-ask the same person within this window
-const DAY_START = 9; // local send window (Asia/Jerusalem)
-const DAY_END = 20;
 
 interface ReviewResult {
   checked: number;
@@ -27,14 +26,6 @@ function nameFromTitle(title: string | null): string | null {
   if (!title) return null;
   const parts = title.split(/\s[—·-]\s/);
   return parts.length > 1 ? parts.slice(1).join(' ').trim() : null;
-}
-
-function localHour(tz: string): number {
-  return Number(
-    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(
-      new Date(),
-    ),
-  );
 }
 
 function buildMessage(name: string | null, url: string): string {
@@ -61,10 +52,9 @@ export async function runReviewRequests(
     result.skipped.push('twilio-not-configured');
     return result;
   }
-  // daytime gate (skipped runs simply retry later; dedup prevents duplicates)
-  const hour = localHour(config.timezone);
-  if (!opts.dryRun && (hour < DAY_START || hour >= DAY_END)) {
-    result.skipped.push('outside-hours');
+  // only during business hours, never on Shabbat (skipped runs retry later; dedup prevents dupes)
+  if (!opts.dryRun && !canSendOutreach(config)) {
+    result.skipped.push('closed-or-shabbat');
     return result;
   }
 

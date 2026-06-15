@@ -6,6 +6,7 @@
 import type { ClientConfig } from '../types.js';
 import { getUpcomingEvents } from '../calendar/google.js';
 import * as whatsapp from '../twilio/whatsapp.js';
+import { isShabbatNow } from '../schedule.js';
 import { wasReminderSent, markReminderSent } from '../memory/history.js';
 
 // How close to the target lead time a cron tick must be to fire (hours).
@@ -57,6 +58,11 @@ export async function runReminders(config: ClientConfig): Promise<ReminderResult
   const result: ReminderResult = { checked: 0, sent: [], skipped: [] };
   if (!whatsapp.isConfigured()) {
     result.skipped.push('twilio-not-configured');
+    return result;
+  }
+  // Don't ping patients on Shabbat (reminders otherwise fire at their lead-time window).
+  if (isShabbatNow(config.timezone)) {
+    result.skipped.push('shabbat');
     return result;
   }
 

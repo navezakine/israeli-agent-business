@@ -5,6 +5,7 @@
 import type { ClientConfig } from '../types.js';
 import { hasUpcomingEventForPhone } from '../calendar/google.js';
 import * as whatsapp from '../twilio/whatsapp.js';
+import { canSendOutreach } from '../schedule.js';
 import { getDueLeads, advanceLead, markBookedLead, markLeadLost } from '../memory/history.js';
 
 const FINAL_DELAY_HOURS = 48;
@@ -28,6 +29,11 @@ export async function runLeadFollowups(config: ClientConfig): Promise<LeadResult
   const result: LeadResult = { due: 0, sent: [], booked: [], skipped: [] };
   if (!whatsapp.isConfigured()) {
     result.skipped.push('twilio-not-configured');
+    return result;
+  }
+  // Only nudge during business hours, never on Shabbat (due leads stay due → retried later).
+  if (!canSendOutreach(config)) {
+    result.skipped.push('closed-or-shabbat');
     return result;
   }
 
