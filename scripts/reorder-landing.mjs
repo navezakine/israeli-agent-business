@@ -19,7 +19,7 @@ const M = {
   CTA: '<!-- ░░ DEMO / CTA ░░ -->',
   FAQ: '<!-- ░░ FAQ ░░ -->',
 };
-const DESIRED = ['HERO', 'PROBLEM', 'CAPABILITIES', 'SHOWCASE', 'CALC', 'WHY', 'HOW', 'CUSTOMIZED', 'CTA', 'FAQ'];
+const DESIRED = ['HERO', 'PROBLEM', 'CALC', 'CAPABILITIES', 'SHOWCASE', 'WHY', 'HOW', 'CUSTOMIZED', 'CTA', 'FAQ'];
 
 const found = Object.entries(M).map(([key, marker]) => {
   const idx = html.indexOf(marker);

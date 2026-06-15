@@ -337,6 +337,8 @@ em { font-style: normal; }
 .step h3 { font-size: 20px; font-weight: 800; margin-top: 18px; }
 .step p { font-size: 15.5px; color: var(--ink-2); margin-top: 8px; }
 .step-line { align-self: center; width: 44px; height: 2px; background: repeating-linear-gradient(to right, var(--line-2) 0 6px, transparent 6px 12px); }
+/* two-step variant (e.g. "customized to your clinic") — center the pair instead of left-filling */
+.steps-2 { grid-template-columns: 1fr auto 1fr; max-width: 720px; margin-inline: auto; }
 
 /* ── capabilities bento ───────────────────────────── */
 .bento { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 56px; }
