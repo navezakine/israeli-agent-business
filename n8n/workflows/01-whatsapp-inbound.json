@@ -27,6 +27,8 @@
             { "name": "clientId", "value": "demo-clinic" },
             { "name": "from", "value": "={{ $json.body.From.replace('whatsapp:', '') }}" },
             { "name": "body", "value": "={{ $json.body.Body }}" },
+            { "name": "mediaUrl", "value": "={{ $json.body.MediaUrl0 || '' }}" },
+            { "name": "mediaContentType", "value": "={{ $json.body.MediaContentType0 || '' }}" },
             { "name": "messageId", "value": "={{ $json.body.MessageSid }}" }
           ]
         },

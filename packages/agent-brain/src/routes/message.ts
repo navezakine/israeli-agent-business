@@ -16,6 +16,7 @@ import { getToggles } from '../db/settings.js';
 import { applyClientOverrides } from '../db/profile.js';
 import type { ClientConfig, AgentResult } from '../types.js';
 import { runAgent } from '../claude/client.js';
+import { transcribeVoiceNote } from '../media/transcribe.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { interpretApproval, buildHitlPrompt, normalizePhone } from '../hitl/hitl.js';
 import { sendOnChannel } from '../meta/meta.js';
@@ -23,13 +24,27 @@ import { appendLogRow } from '../google/sheets.js';
 import { notifyError } from '../alerts/alerts.js';
 import type { MessageResponse } from '../types.js';
 
-const requestSchema = z.object({
-  clientId: z.string().min(1),
-  from: z.string().min(1),
-  body: z.string().min(1),
-  messageId: z.string().optional(),
-  timestamp: z.string().optional(),
-});
+export const requestSchema = z
+  .object({
+    clientId: z.string().min(1),
+    from: z.string().min(1),
+    body: z.string().optional().default(''),
+    // Voice notes / media (n8n forwards Twilio's MediaUrl0 + MediaContentType0).
+    // Empty strings (text messages) are normalized to undefined.
+    mediaUrl: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.string().url().optional(),
+    ),
+    mediaContentType: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.string().optional(),
+    ),
+    messageId: z.string().optional(),
+    timestamp: z.string().optional(),
+  })
+  .refine((d) => (d.body && d.body.trim().length > 0) || d.mediaUrl, {
+    message: 'either body or mediaUrl is required',
+  });
 
 // Words that signal booking interest even before any calendar tool fires.
 const BOOKING_HINT = /תור|לקבוע|להזמין|פנוי|זמין|מתי יש/;
@@ -80,17 +95,52 @@ messageRouter.post('/', async (req, res) => {
     return;
   }
 
-  const { clientId, from, body } = parsed.data;
+  const { clientId, from, mediaUrl, mediaContentType } = parsed.data;
+  let body = (parsed.data.body ?? '').trim();
 
   try {
     const config = await applyClientOverrides(loadClientConfig(clientId));
     const vault = loadVault(clientId);
     const toggles = await getToggles(clientId);
+    const canReply = toggles.botActive && toggles.autoReply;
+
+    // ── Voice note / media → transcribe to text ───────────────
+    // WhatsApp voice notes arrive as audio media with an empty Body. Transcribe
+    // them (OpenAI Whisper, auto language detection) and treat the transcript as
+    // the user's message. Non-audio media isn't supported yet.
+    if (mediaUrl) {
+      const isAudio = !mediaContentType || mediaContentType.startsWith('audio');
+      if (isAudio) {
+        const transcript = await transcribeVoiceNote(mediaUrl, mediaContentType);
+        if (transcript) {
+          body = transcript;
+        } else {
+          await appendMessage({ clientId, phoneNumber: from, role: 'user', content: '[הודעה קולית]' });
+          const fallback =
+            'היי! קיבלתי הודעה קולית אבל לא הצלחתי להבין אותה. אפשר לכתוב לי כאן בהודעה? 🙏';
+          res.json(
+            canReply
+              ? { reply: fallback, intent: 'voice_unreadable' }
+              : { reply: '', intent: 'voice_unreadable', botPaused: true },
+          );
+          return;
+        }
+      } else {
+        await appendMessage({ clientId, phoneNumber: from, role: 'user', content: '[קובץ מדיה]' });
+        const fallback = 'היי! כרגע אני יכול לקרוא טקסט והודעות קוליות. אפשר לכתוב לי כאן? 🙂';
+        res.json(
+          canReply
+            ? { reply: fallback, intent: 'media_unsupported' }
+            : { reply: '', intent: 'media_unsupported', botPaused: true },
+        );
+        return;
+      }
+    }
 
     // ── Paused: master off OR auto-replies off ────────────────
     // Still record the inbound message (so counts/insights stay accurate),
     // but send nothing back to the patient.
-    if (!toggles.botActive || !toggles.autoReply) {
+    if (!canReply) {
       await appendMessage({ clientId, phoneNumber: from, role: 'user', content: body });
       res.json({ reply: '', intent: 'paused', botPaused: true });
       return;
