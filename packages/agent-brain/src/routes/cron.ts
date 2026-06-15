@@ -8,7 +8,11 @@ import { runReminders } from '../reminders/reminders.js';
 import { runLeadFollowups } from '../reminders/leads.js';
 import { runReviewRequests } from '../reminders/reviews.js';
 import { runWaitlist } from '../reminders/waitlist.js';
+import { expireOldHandoffs } from '../memory/history.js';
 import { notifyError } from '../alerts/alerts.js';
+
+// Auto-resolve a human handoff after this long so the bot never stays silent forever.
+const HANDOFF_MAX_AGE_MS = 24 * 3_600_000;
 
 export const cronRouter = Router();
 
@@ -40,6 +44,7 @@ cronRouter.post('/run', async (req, res) => {
       if (toggles.reminderHours && toggles.reminderHours.length) {
         config.reminderHours = toggles.reminderHours;
       }
+      await expireOldHandoffs(id, HANDOFF_MAX_AGE_MS); // housekeeping, not toggle-gated
       results[id] = {
         reminders:
           toggles.botActive && toggles.remindersEnabled

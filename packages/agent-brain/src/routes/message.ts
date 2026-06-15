@@ -11,6 +11,9 @@ import {
   clearPending,
   upsertLead,
   markBookedLead,
+  openHandoff,
+  getOpenHandoff,
+  resolveHandoffByLast4,
 } from '../memory/history.js';
 import { getToggles } from '../db/settings.js';
 import { applyClientOverrides } from '../db/profile.js';
@@ -48,6 +51,10 @@ export const requestSchema = z
 
 // Words that signal booking interest even before any calendar tool fires.
 const BOOKING_HINT = /תור|לקבוע|להזמין|פנוי|זמין|מתי יש/;
+
+// Operator command (from the clinic's number) to end a human handoff so the bot
+// resumes for that patient, e.g. "חזרה 1234" / "resume 1234" (1234 = last 4 digits).
+const RESUME_CMD = /^(?:חזרה|resume|המשך|continue)\b\s*(\d{2,})?/i;
 
 // Booking interest with no completed booking → track as a lead for follow-up.
 // A completed booking resolves any existing lead (recovered if we'd nudged it).
@@ -103,6 +110,23 @@ messageRouter.post('/', async (req, res) => {
     const vault = loadVault(clientId);
     const toggles = await getToggles(clientId);
     const canReply = toggles.botActive && toggles.autoReply;
+    const fromApprover = normalizePhone(from) === normalizePhone(config.hitlApproverWhatsapp);
+
+    // ── Operator: end a human handoff so the bot resumes for a patient ──
+    // e.g. the clinic texts "חזרה 1234". Checked before everything else.
+    if (fromApprover) {
+      const m = RESUME_CMD.exec(body);
+      if (m) {
+        const resumed = await resolveHandoffByLast4(clientId, (m[1] ?? '').slice(-4));
+        res.json({
+          reply: resumed
+            ? `✅ מעולה, Replai חוזר לטפל ב-${resumed}.`
+            : 'לא מצאתי שיחה פתוחה שהועברה לטיפול אנושי. כדי לציין מטופל ספציפי: "חזרה" ואחריו 4 הספרות האחרונות של מספרו.',
+          intent: 'handoff_resume',
+        });
+        return;
+      }
+    }
 
     // ── Voice note / media → transcribe to text ───────────────
     // WhatsApp voice notes arrive as audio media with an empty Body. Transcribe
@@ -128,19 +152,21 @@ messageRouter.post('/', async (req, res) => {
       } else {
         // Photo / video / file → hand off to a human. Replai must NEVER interpret
         // a patient's image or give any medical advice, so the media is never sent
-        // to Claude: we notify the clinic's human and reply with a safe handoff.
+        // to Claude. We open a handoff (the bot stays silent for this patient until
+        // the clinic resolves it), alert the clinic's human, and reply once.
         const kind = mediaContentType?.startsWith('image')
           ? 'תמונה'
           : mediaContentType?.startsWith('video')
             ? 'סרטון'
             : 'קובץ';
         await appendMessage({ clientId, phoneNumber: from, role: 'user', content: `[${kind}]` });
+        const newlyOpened = await openHandoff(clientId, from, `patient sent ${kind}`);
 
         // Best-effort alert to the clinic's human (never blocks the patient reply).
         try {
           await whatsapp.sendWhatsApp(
             config.hitlApproverWhatsapp,
-            `📸 מטופל (${from}) שלח ${kind} בצ'אט ומבקש מענה. Replai לא מנתח תמונות ולא נותן ייעוץ רפואי, לכן העברתי את הפנייה אליך. כדאי לחזור אליו/אליה.`,
+            `📸 מטופל (${from}) שלח ${kind}. Replai לא מנתח תמונות ולא נותן ייעוץ רפואי, אז השיחה הועברה אליך ו-Replai לא יענה לו/לה עד שתסיים/י. בסיום השב/י "חזרה ${from.slice(-4)}".`,
           );
         } catch (err) {
           console.error('[media] human handoff notify failed', err);
@@ -148,16 +174,38 @@ messageRouter.post('/', async (req, res) => {
 
         await logInteraction(config, from, 'escalation', 'escalate_to_human', false);
 
-        const handoff = `קיבלנו את ה${kind} ששלחת 🙏 אני לא יכולה לבדוק תמונות וקבצים או לתת ייעוץ רפואי, אז העברתי אותך לצוות המרפאה והם יחזרו אליך בהקדם. אם בינתיים יש שאלה על תורים, שעות או מחירים, אני כאן 😊`;
+        // Reply to the patient only the first time (avoid repeating on every photo).
+        const handoff = `קיבלנו את ה${kind} ששלחת 🙏 אני לא יכולה לבדוק תמונות וקבצים או לתת ייעוץ רפואי, אז העברתי אותך לצוות המרפאה והם יחזרו אליך בהקדם 😊`;
         res.json(
-          canReply
+          canReply && newlyOpened
             ? {
                 reply: handoff,
                 intent: 'escalation',
                 actionRequired: { type: 'escalate_to_human', payload: { reason: `patient sent ${kind}`, urgency: 'normal' } },
               }
-            : { reply: '', intent: 'escalation', botPaused: true },
+            : { reply: '', intent: 'escalation', botPaused: !canReply },
         );
+        return;
+      }
+    }
+
+    // ── Handed off to a human → stay silent, forward to the clinic ──
+    // Once a conversation is with a human, the bot does not auto-reply to that
+    // patient until the clinic resolves it ("חזרה <last4>"). We still record the
+    // message and forward it so the clinic sees the ongoing conversation.
+    if (!fromApprover) {
+      const open = await getOpenHandoff(clientId, from);
+      if (open) {
+        await appendMessage({ clientId, phoneNumber: from, role: 'user', content: body || '[מדיה]' });
+        try {
+          await whatsapp.sendWhatsApp(
+            config.hitlApproverWhatsapp,
+            `📨 מטופל (${from}) שכבר הועבר לטיפולך כתב: ${body || '[מדיה]'}`,
+          );
+        } catch (err) {
+          console.error('[handoff] forward to human failed', err);
+        }
+        res.json({ reply: '', intent: 'handoff' });
         return;
       }
     }
@@ -252,10 +300,11 @@ messageRouter.post('/', async (req, res) => {
     // (the model sometimes calls escalate_to_human without writing a reply).
     if (result.actionRequired?.type === 'escalate_to_human') {
       const reason = (result.actionRequired.payload as { reason?: string } | undefined)?.reason;
+      await openHandoff(clientId, from, reason ?? 'escalation');
       try {
         await whatsapp.sendWhatsApp(
           config.hitlApproverWhatsapp,
-          `🔔 מטופל (${from}) צריך מענה אנושי${reason ? ` (${reason})` : ''}. Replai העביר את השיחה אליך.`,
+          `🔔 מטופל (${from}) צריך מענה אנושי${reason ? ` (${reason})` : ''}. Replai העביר אליך את השיחה ולא יענה לו/לה עד שתסיים/י. בסיום השב/י "חזרה ${from.slice(-4)}".`,
         );
       } catch (err) {
         console.error('[escalate] human notify failed', err);

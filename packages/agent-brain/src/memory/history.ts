@@ -444,3 +444,111 @@ export async function markWaitlistBooked(clientId: string, phone: string): Promi
     .in('status', ['open', 'offered']);
   if (error) console.error('[history] markWaitlistBooked', error.message);
 }
+
+// ── Human handoff ────────────────────────────────────────────
+// While a patient has an OPEN handoff, the bot stays silent for them.
+
+/** Open (or refresh) a handoff for a patient. Returns true if it was newly opened. */
+export async function openHandoff(
+  clientId: string,
+  phone: string,
+  reason: string,
+): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const existing = await getOpenHandoff(clientId, phone);
+  if (existing) return false; // already handed off; don't duplicate
+  const { error } = await sb
+    .from('handoffs')
+    .insert({ client_id: clientId, phone, reason, status: 'open' });
+  if (error) {
+    console.error('[history] openHandoff', error.message);
+    return false;
+  }
+  return true;
+}
+
+/** Whether this patient currently has an open handoff. */
+export async function getOpenHandoff(
+  clientId: string,
+  phone: string,
+): Promise<{ phone: string; reason: string | null } | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from('handoffs')
+    .select('phone, reason')
+    .eq('client_id', clientId)
+    .eq('phone', phone)
+    .eq('status', 'open')
+    .maybeSingle();
+  if (error) {
+    console.error('[history] getOpenHandoff', error.message);
+    return null;
+  }
+  return data ? { phone: data.phone as string, reason: (data.reason as string) ?? null } : null;
+}
+
+/** Resolve an open handoff by exact phone. Returns true if one was resolved. */
+export async function resolveHandoff(clientId: string, phone: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const { data, error } = await sb
+    .from('handoffs')
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('phone', phone)
+    .eq('status', 'open')
+    .select('phone');
+  if (error) {
+    console.error('[history] resolveHandoff', error.message);
+    return false;
+  }
+  return (data ?? []).length > 0;
+}
+
+/**
+ * Resolve an open handoff identified by the last 4 digits of the phone (what the
+ * clinic types). If last4 is empty and exactly one handoff is open, resolve that
+ * one. Returns the resolved phone, or null if nothing matched / ambiguous.
+ */
+export async function resolveHandoffByLast4(
+  clientId: string,
+  last4: string,
+): Promise<string | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from('handoffs')
+    .select('phone')
+    .eq('client_id', clientId)
+    .eq('status', 'open');
+  if (error) {
+    console.error('[history] resolveHandoffByLast4', error.message);
+    return null;
+  }
+  const open = (data ?? []).map((r) => r.phone as string);
+  let phone: string | null = null;
+  if (last4) {
+    const matches = open.filter((p) => p.replace(/\D/g, '').endsWith(last4));
+    if (matches.length === 1) phone = matches[0];
+  } else if (open.length === 1) {
+    phone = open[0];
+  }
+  if (!phone) return null;
+  return (await resolveHandoff(clientId, phone)) ? phone : null;
+}
+
+/** Housekeeping: auto-resolve handoffs older than maxAgeMs so the bot never stays stuck. */
+export async function expireOldHandoffs(clientId: string, olderThanMs: number): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const { error } = await sb
+    .from('handoffs')
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('status', 'open')
+    .lt('created_at', cutoff);
+  if (error) console.error('[history] expireOldHandoffs', error.message);
+}
