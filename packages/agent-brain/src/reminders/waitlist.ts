@@ -7,6 +7,7 @@ import type { ClientConfig } from '../types.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { getAvailableSlots, isConfigured } from '../calendar/google.js';
 import { canSendOutreach } from '../schedule.js';
+import { loadTemplates, render } from '../templates.js';
 import {
   getOpenWaitlist,
   markWaitlistOffered,
@@ -26,11 +27,16 @@ interface WaitlistResult {
 function fmt(startISO: string, tz: string, opts: Intl.DateTimeFormatOptions): string {
   return new Intl.DateTimeFormat('he-IL', { ...opts, timeZone: tz }).format(new Date(startISO));
 }
-function buildOffer(name: string | null | undefined, startISO: string, tz: string): string {
+function buildOffer(
+  template: string,
+  name: string | null | undefined,
+  startISO: string,
+  tz: string,
+): string {
   const time = fmt(startISO, tz, { hour: '2-digit', minute: '2-digit', hour12: false });
   const day = fmt(startISO, tz, { weekday: 'long', day: 'numeric', month: 'numeric' });
-  const greet = name ? `היי ${name}!` : 'היי!';
-  return `${greet} התפנה תור ב${day} בשעה ${time} 🗓️ רוצה שאשמור לך אותו? כתבי "כן" ואסגור לך מיד, זה תפוס למי שמגיב/ה ראשון/ה.`;
+  const greeting = name ? `היי ${name}!` : 'היי!';
+  return render(template, { greeting, day, time });
 }
 
 export async function runWaitlist(
@@ -58,6 +64,7 @@ export async function runWaitlist(
     return result;
   }
 
+  const { waitlist_offer: template } = await loadTemplates(config.clientId, ['waitlist_offer']);
   const entries = await getOpenWaitlist(config.clientId);
   result.checked = entries.length;
   const offeredSlots = new Set<string>(); // don't offer the same slot to two people this run
@@ -83,7 +90,7 @@ export async function runWaitlist(
     if (!chosen) continue;
 
     offeredSlots.add(chosen.dateTime);
-    const body = buildOffer(e.name, chosen.dateTime, config.timezone);
+    const body = buildOffer(template, e.name, chosen.dateTime, config.timezone);
 
     if (opts.dryRun) {
       result.offered.push({ to: e.phone, name: e.name, slot: chosen.dateTime, body });

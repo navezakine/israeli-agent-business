@@ -5,6 +5,7 @@
 import type { ClientConfig } from '../types.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { canSendOutreach } from '../schedule.js';
+import { loadTemplates, render } from '../templates.js';
 import { getSupabase } from '../db/supabase.js';
 import {
   wasReviewRequested,
@@ -28,9 +29,9 @@ function nameFromTitle(title: string | null): string | null {
   return parts.length > 1 ? parts.slice(1).join(' ').trim() : null;
 }
 
-function buildMessage(name: string | null, url: string): string {
-  const greet = name ? `היי ${name}!` : 'היי!';
-  return `${greet} 🌸 תודה שהגעת אלינו. אם היה לך טוב, נשמח אם תדרג/י אותנו בגוגל בדקה אחת, זה עוזר לנו המון: ${url} תודה ושיהיה המשך יום מקסים 💛`;
+function buildMessage(template: string, name: string | null, url: string): string {
+  const greeting = name ? `היי ${name}!` : 'היי!';
+  return render(template, { greeting, link: url });
 }
 
 export async function runReviewRequests(
@@ -75,6 +76,7 @@ export async function runReviewRequests(
     return result;
   }
   result.checked = (data ?? []).length;
+  const { review_request: template } = await loadTemplates(config.clientId, ['review_request']);
 
   for (const a of data ?? []) {
     const eventId = a.google_event_id as string | null;
@@ -96,7 +98,7 @@ export async function runReviewRequests(
     }
 
     const name = nameFromTitle(a.title as string | null);
-    const body = buildMessage(name, config.googleReviewUrl);
+    const body = buildMessage(template, name, config.googleReviewUrl);
 
     if (opts.dryRun) {
       result.sent.push({ to: phone, name, body });

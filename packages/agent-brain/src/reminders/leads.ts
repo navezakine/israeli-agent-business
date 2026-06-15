@@ -6,6 +6,7 @@ import type { ClientConfig } from '../types.js';
 import { hasUpcomingEventForPhone } from '../calendar/google.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { canSendOutreach } from '../schedule.js';
+import { loadTemplates, render } from '../templates.js';
 import { getDueLeads, advanceLead, markBookedLead, markLeadLost } from '../memory/history.js';
 
 const FINAL_DELAY_HOURS = 48;
@@ -15,14 +16,6 @@ interface LeadResult {
   sent: Array<{ to: string; stage: number }>;
   booked: string[];
   skipped: string[];
-}
-
-function firstNudge(config: ClientConfig): string {
-  return `היי! 🙂 ראיתי שהתעניינת בתור אצלנו. רוצה שנמצא לך זמן מתאים? פשוט כתוב/כתבי לי מתי נוח ואשמח לעזור 🗓️`;
-}
-
-function finalNudge(config: ClientConfig): string {
-  return `היי! עוד ניסיון אחרון מצידי 🙂 אם בא לך לקבוע תור — אני כאן. אם לא, הכל טוב, שיהיה יום מעולה!`;
 }
 
 export async function runLeadFollowups(config: ClientConfig): Promise<LeadResult> {
@@ -37,6 +30,7 @@ export async function runLeadFollowups(config: ClientConfig): Promise<LeadResult
     return result;
   }
 
+  const templates = await loadTemplates(config.clientId, ['lead_nudge1', 'lead_nudge2']);
   const now = Date.now();
   const leads = await getDueLeads(config.clientId, now);
   result.due = leads.length;
@@ -55,11 +49,11 @@ export async function runLeadFollowups(config: ClientConfig): Promise<LeadResult
 
     try {
       if (lead.stage === 0) {
-        await whatsapp.sendWhatsApp(lead.phone, firstNudge(config));
+        await whatsapp.sendWhatsApp(lead.phone, render(templates.lead_nudge1, { greeting: 'היי!' }));
         await advanceLead(config.clientId, lead.phone, 1, now + FINAL_DELAY_HOURS * 3_600_000);
         result.sent.push({ to: lead.phone, stage: 0 });
       } else {
-        await whatsapp.sendWhatsApp(lead.phone, finalNudge(config));
+        await whatsapp.sendWhatsApp(lead.phone, render(templates.lead_nudge2, { greeting: 'היי!' }));
         await markLeadLost(config.clientId, lead.phone);
         result.sent.push({ to: lead.phone, stage: lead.stage });
       }

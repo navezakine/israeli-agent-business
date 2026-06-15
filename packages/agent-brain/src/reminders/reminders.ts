@@ -7,6 +7,7 @@ import type { ClientConfig } from '../types.js';
 import { getUpcomingEvents } from '../calendar/google.js';
 import * as whatsapp from '../twilio/whatsapp.js';
 import { isShabbatNow } from '../schedule.js';
+import { loadTemplates, render, type TemplateKey } from '../templates.js';
 import { wasReminderSent, markReminderSent } from '../memory/history.js';
 
 // How close to the target lead time a cron tick must be to fire (hours).
@@ -39,19 +40,18 @@ function buildMessage(
   startISO: string,
   treatment: string,
   name: string,
+  templates: Record<TemplateKey, string>,
 ): string {
   const tz = config.timezone;
   const time = fmt(startISO, tz, { hour: '2-digit', minute: '2-digit', hour12: false });
   const greeting = name ? `היי ${name}!` : 'היי!';
   const address = config.address ? ` הכתובת: ${config.address}.` : '';
+  const day = fmt(startISO, tz, { weekday: 'long', day: 'numeric', month: 'numeric' });
 
   // The shortest lead time = day-of "see you soon" reminder.
   const isSameDay = bucket === Math.min(...config.reminderHours);
-  if (isSameDay) {
-    return `${greeting} תזכורת קצרה — מחכים לך היום בשעה ${time} 🗓️${address} נתראה!`;
-  }
-  const day = fmt(startISO, tz, { weekday: 'long', day: 'numeric', month: 'numeric' });
-  return `${greeting} רק תזכורת לתור ${treatment} ב${day} בשעה ${time}.${address} מחכים לך 🗓️`;
+  const key: TemplateKey = isSameDay ? 'reminder_sameday' : 'reminder_advance';
+  return render(templates[key], { greeting, time, day, treatment, address });
 }
 
 export async function runReminders(config: ClientConfig): Promise<ReminderResult> {
@@ -66,6 +66,7 @@ export async function runReminders(config: ClientConfig): Promise<ReminderResult
     return result;
   }
 
+  const templates = await loadTemplates(config.clientId, ['reminder_advance', 'reminder_sameday']);
   const maxLead = Math.max(...config.reminderHours);
   const events = await getUpcomingEvents(config, maxLead + 1);
   result.checked = events.length;
@@ -80,7 +81,7 @@ export async function runReminders(config: ClientConfig): Promise<ReminderResult
     for (const H of config.reminderHours) {
       const inWindow = hoursUntil >= H - WINDOW_HOURS && hoursUntil <= H + WINDOW_HOURS;
       if (!inWindow || (await wasReminderSent(config.clientId, ev.id, H))) continue;
-      const body = buildMessage(H, config, ev.startISO, treatment, name);
+      const body = buildMessage(H, config, ev.startISO, treatment, name, templates);
       try {
         await whatsapp.sendWhatsApp(phone, body);
         await markReminderSent(config.clientId, ev.id, H);
