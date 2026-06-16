@@ -261,4 +261,18 @@
       }
     });
   }
+
+  // ── promo video: poster + click-to-play ───────────
+  (function () {
+    var frame = document.querySelector(".video-frame");
+    var vid = document.getElementById("promo-video");
+    var playBtn = document.getElementById("video-play");
+    if (!frame || !vid || !playBtn) return;
+    playBtn.addEventListener("click", function () {
+      frame.classList.add("is-playing");
+      vid.setAttribute("controls", "");
+      var p = vid.play();
+      if (p && p.catch) p.catch(function () {}); // ignore autoplay-policy rejections
+    });
+  })();
 })();
